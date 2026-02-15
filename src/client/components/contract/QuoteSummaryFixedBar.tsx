@@ -6,7 +6,6 @@ import { useContractStore, MOCK_PLANS, MOCK_ADDONS } from "@/client/store/useCon
 const DEFAULT_INSTALLMENTS = 24;
 
 export function QuoteSummaryFixedBar() {
-  const device = useContractStore((s) => s.device);
   const plan = useContractStore((s) => s.plan);
   const discount = useContractStore((s) => s.discount);
   const settlement = useContractStore((s) => s.settlement);
