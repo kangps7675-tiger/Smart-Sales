@@ -75,12 +75,12 @@ function formatDate(s: string) {
   return d.toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
 }
 
-export default function NoticeDetailPage({
+export default async function NoticeDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = params as { id: string };
+  const { id } = await params;
   const notice = MOCK_NOTICES[id];
 
   if (!notice) notFound();
