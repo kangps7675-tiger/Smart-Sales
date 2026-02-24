@@ -16,7 +16,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import Link from "next/link";
 import { Cormorant_Garamond } from "next/font/google";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -41,13 +41,7 @@ const logoFont = Cormorant_Garamond({
 const TAB_IDS = ["login", "tenant_signup", "invite_signup"] as const;
 type Tab = (typeof TAB_IDS)[number];
 
-/**
- * 로그인 페이지 컴포넌트
- * 
- * URL 쿼리 파라미터로 탭을 제어할 수 있습니다.
- * 예: /login?tab=tenant_signup
- */
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const login = useAuthStore((s) => s.login);
@@ -328,5 +322,28 @@ export default function LoginPage() {
         </p>
       </main>
     </div>
+  );
+}
+
+/**
+ * 로그인 페이지 컴포넌트
+ *
+ * URL 쿼리 파라미터로 탭을 제어할 수 있습니다.
+ * 예: /login?tab=tenant_signup
+ *
+ * Next.js prerendering에서 useSearchParams 사용을 위해
+ * Suspense로 감싼 래퍼 컴포넌트를 제공합니다.
+ */
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+          페이지를 불러오는 중입니다...
+        </div>
+      }
+    >
+      <LoginPageInner />
+    </Suspense>
   );
 }
