@@ -3,14 +3,25 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "npx next dev",
-    "build": "npx next build",
+    "dev": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-auto-recover.ps1",
+    "dev:direct": "npx next dev -p 3000",
+    "build": "powershell -ExecutionPolicy Bypass -File ./scripts/build-auto-recover.ps1",
+    "build:direct": "npx next build",
     "start": "npx next start",
-    "lint": "npx next lint"
+    "lint": "npx next lint",
+    "clean": "powershell -ExecutionPolicy Bypass -File ./scripts/clean-build.ps1",
+    "clean:all": "npm run clean && if exist node_modules rmdir /s /q node_modules && npm install",
+    "build:clean": "npm run clean && npm run build:direct",
+    "check": "powershell -ExecutionPolicy Bypass -File ./scripts/check-env.ps1",
+    "kill:3000": "powershell -ExecutionPolicy Bypass -File ./scripts/kill-port-3000.ps1"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.97.0",
+    "@types/crypto-js": "^4.2.2",
+    "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "crypto-js": "^4.2.0",
     "next": "14.2.35",
     "next-themes": "^0.4.6",
     "react": "^18",
@@ -21,6 +32,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",

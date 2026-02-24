@@ -1,57 +1,58 @@
+/**
+ * 로그인 및 회원가입 페이지
+ *
+ * 역할:
+ * - 아이디/비밀번호 로그인
+ * - 매장주 회원가입 (매장 생성 후 사장님 계정)
+ * - 판매사 가입: 매장주가 발급한 매장키(초대 코드)로만 가입 (소셜 로그인 없음)
+ *
+ * 탭 구성:
+ * - login: 로그인
+ * - tenant_signup: 매장주 가입
+ * - invite_signup: 판매사 가입 (매장키 입력)
+ *
+ * @file page.tsx
+ */
+
 "use client";
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { Cormorant_Garamond } from "next/font/google";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuthStore } from "@/client/store/useAuthStore";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { validatePassword } from "@/lib/password-validation";
 import { cn } from "@/lib/utils";
 
-function GoogleIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
-      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
-      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
-      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
-    </svg>
-  );
-}
-function NaverIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M16.273 12.845L7.376 0H0v24h7.727V11.155L16.624 24H24V0h-7.727v12.845z" />
-    </svg>
-  );
-}
-function KakaoIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 3c5.799 0 10.5 3.664 10.5 8.185 0 4.52-4.701 8.184-10.5 8.184a13.5 13.5 0 0 1-1.727-.11l-4.408 2.883c-.501.328-1.226.023-1.12-.613l.267-1.716C2.88 11.6 1.5 9.595 1.5 7.185 1.5 3.665 6.201 3 12 3z" />
-    </svg>
-  );
-}
-function FacebookIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-    </svg>
-  );
-}
+const logoFont = Cormorant_Garamond({
+  subsets: ["latin"],
+  weight: "600",
+});
 
-const TAB_IDS = ["login", "tenant_signup", "invite_signup", "customer_signup"] as const;
+/**
+ * 사용 가능한 탭 ID 목록
+ * 
+ * 직원용: 매장주·판매사만 가입/로그인 (고객 가입·소셜 로그인 없음).
+ */
+const TAB_IDS = ["login", "tenant_signup", "invite_signup"] as const;
 type Tab = (typeof TAB_IDS)[number];
 
+/**
+ * 로그인 페이지 컴포넌트
+ * 
+ * URL 쿼리 파라미터로 탭을 제어할 수 있습니다.
+ * 예: /login?tab=tenant_signup
+ */
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const login = useAuthStore((s) => s.login);
   const signUpAsTenantAdmin = useAuthStore((s) => s.signUpAsTenantAdmin);
   const signUpWithInvite = useAuthStore((s) => s.signUpWithInvite);
-  const signUpAsCustomer = useAuthStore((s) => s.signUpAsCustomer);
 
   const tabFromUrl = searchParams.get("tab") as Tab | null;
   const [tab, setTab] = useState<Tab>(tabFromUrl && TAB_IDS.includes(tabFromUrl) ? tabFromUrl : "login");
@@ -82,16 +83,11 @@ export default function LoginPage() {
   const [inviteSignPasswordConfirm, setInviteSignPasswordConfirm] = useState("");
   const [inviteError, setInviteError] = useState("");
 
-  const [customerCode, setCustomerCode] = useState("");
-  const [customerCodeValid, setCustomerCodeValid] = useState<boolean | null>(null);
-  const [customerInviteShopName, setCustomerInviteShopName] = useState("");
-  const [customerSignName, setCustomerSignName] = useState("");
-  const [customerSignEmail, setCustomerSignEmail] = useState("");
-  const [customerSignLoginId, setCustomerSignLoginId] = useState("");
-  const [customerSignPassword, setCustomerSignPassword] = useState("");
-  const [customerSignPasswordConfirm, setCustomerSignPasswordConfirm] = useState("");
-  const [customerError, setCustomerError] = useState("");
-
+  /**
+   * 판매사 초대 코드 유효성 검증
+   * 
+   * 입력된 초대 코드가 존재하고 만료되지 않았는지 확인합니다.
+   */
   const checkInviteCode = () => {
     const { invites } = useAuthStore.getState();
     const code = inviteCode.trim().toUpperCase();
@@ -101,21 +97,42 @@ export default function LoginPage() {
     setInviteCodeValid(valid);
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  /**
+   * 로그인 처리 핸들러
+   * 
+   * 로그인 ID와 비밀번호로 /api/auth/login을 호출하고,
+   * 성공 시 대시보드로 이동합니다.
+   */
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginId.trim()) return;
-    login(loginId.trim(), password, autoLogin);
-    router.push("/dashboard");
+    const result = await login(loginId.trim(), password, autoLogin);
+    if (result.success) {
+      router.push("/dashboard");
+    } else if (result.error) {
+      alert(result.error);
+    }
   };
 
-  const handleTenantSignUp = (e: React.FormEvent) => {
+  /**
+   * 매장주 회원가입 처리 핸들러
+   * 
+   * 매장명과 사용자 정보를 입력받아 매장주 계정을 생성합니다.
+   * 비밀번호 확인이 일치해야 가입이 완료됩니다.
+   */
+  const handleTenantSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shopName.trim() || !signName.trim() || !signEmail.trim() || !signLoginId.trim() || !signPassword) return;
+    const pwdCheck = validatePassword(signPassword);
+    if (!pwdCheck.valid) {
+      alert(pwdCheck.message ?? "비밀번호 규칙을 확인하세요.");
+      return;
+    }
     if (signPassword !== signPasswordConfirm) {
       alert("비밀번호가 일치하지 않습니다.");
       return;
     }
-    signUpAsTenantAdmin(
+    const result = await signUpAsTenantAdmin(
       shopName.trim(),
       {
         name: signName.trim(),
@@ -124,17 +141,26 @@ export default function LoginPage() {
       },
       signPassword
     );
-    router.push("/dashboard");
+    if (result.success) {
+      router.push("/dashboard");
+    } else if (result.error) {
+      alert(result.error);
+    }
   };
 
-  const handleInviteSignUp = (e: React.FormEvent) => {
+  const handleInviteSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setInviteError("");
+    const pwdCheck = validatePassword(inviteSignPassword);
+    if (!pwdCheck.valid) {
+      setInviteError(pwdCheck.message ?? "비밀번호 규칙을 확인하세요.");
+      return;
+    }
     if (inviteSignPassword !== inviteSignPasswordConfirm) {
       setInviteError("비밀번호가 일치하지 않습니다.");
       return;
     }
-    const result = signUpWithInvite(
+    const result = await signUpWithInvite(
       inviteCode.trim(),
       {
         name: inviteSignName.trim(),
@@ -147,54 +173,19 @@ export default function LoginPage() {
     else setInviteError(result.error ?? "가입에 실패했습니다.");
   };
 
-  const checkCustomerCode = () => {
-    const { customerInvites } = useAuthStore.getState();
-    const code = customerCode.trim().toUpperCase();
-    const invite = customerInvites.find(
-      (i) => i.code.toUpperCase() === code && new Date(i.expiresAt) > new Date()
-    );
-    setCustomerCodeValid(!!invite);
-    setCustomerInviteShopName(invite?.shopName ?? "");
-  };
-
-  const handleCustomerSignUp = (e: React.FormEvent) => {
-    e.preventDefault();
-    setCustomerError("");
-    if (customerSignPassword !== customerSignPasswordConfirm) {
-      setCustomerError("비밀번호가 일치하지 않습니다.");
-      return;
-    }
-    const result = signUpAsCustomer(
-      customerCode.trim(),
-      {
-        name: customerSignName.trim(),
-        email: customerSignEmail.trim(),
-        loginId: customerSignLoginId.trim(),
-      },
-      customerSignPassword
-    );
-    if (result.success) router.push("/dashboard");
-    else setCustomerError(result.error ?? "가입에 실패했습니다.");
-  };
-
-  const handleSocialLogin = (provider: string) => {
-    alert(`${provider} 로그인은 준비 중입니다.`);
-  };
-
   const tabs: { id: Tab; label: string }[] = [
     { id: "login", label: "로그인" },
     { id: "tenant_signup", label: "매장주 가입" },
     { id: "invite_signup", label: "판매사 가입" },
-    { id: "customer_signup", label: "고객 가입" },
   ];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" suppressHydrationWarning>
       <header className="sticky top-0 z-50 border-b border-border/80 bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2 font-semibold text-foreground">
             <span className="text-xl">📱</span>
-            <span>Smart Sales</span>
+            <span className={`text-2xl ${logoFont.className}`}>Smart Sales</span>
           </Link>
           <ThemeToggle />
         </div>
@@ -222,13 +213,11 @@ export default function LoginPage() {
               {tab === "login" && "로그인"}
               {tab === "tenant_signup" && "매장주 가입"}
               {tab === "invite_signup" && "판매사 가입 (초대 코드)"}
-              {tab === "customer_signup" && "고객 가입"}
             </CardTitle>
             <CardDescription>
               {tab === "login" && "아이디와 비밀번호를 입력하세요."}
               {tab === "tenant_signup" && "매장을 등록하고 사장님 계정을 만드세요. 가입 후 판매사를 초대할 수 있습니다."}
               {tab === "invite_signup" && "매장주가 발급한 초대 코드를 입력한 뒤, 판매사 계정을 만드세요."}
-              {tab === "customer_signup" && "매장에서 받은 고객 초대 코드를 입력하면 해당 매장 고객으로 가입할 수 있습니다."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -270,7 +259,8 @@ export default function LoginPage() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground">비밀번호</label>
-                  <Input type="password" placeholder="비밀번호" value={signPassword} onChange={(e) => setSignPassword(e.target.value)} autoComplete="new-password" />
+                  <Input type="password" placeholder="비밀번호 (8자 이상, 특수문자 포함)" value={signPassword} onChange={(e) => setSignPassword(e.target.value)} autoComplete="new-password" />
+                  <p className="text-xs text-muted-foreground">8자 이상, 특수문자 1자 이상 포함</p>
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground">비밀번호 확인</label>
@@ -316,7 +306,8 @@ export default function LoginPage() {
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-foreground">비밀번호</label>
-                      <Input type="password" placeholder="비밀번호" value={inviteSignPassword} onChange={(e) => setInviteSignPassword(e.target.value)} autoComplete="new-password" />
+                      <Input type="password" placeholder="비밀번호 (8자 이상, 특수문자 포함)" value={inviteSignPassword} onChange={(e) => setInviteSignPassword(e.target.value)} autoComplete="new-password" />
+                      <p className="text-xs text-muted-foreground">8자 이상, 특수문자 1자 이상 포함</p>
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-foreground">비밀번호 확인</label>
@@ -328,73 +319,6 @@ export default function LoginPage() {
                 )}
               </form>
             )}
-
-            {tab === "customer_signup" && (
-              <form onSubmit={handleCustomerSignUp} className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">고객 초대 코드</label>
-                  <div className="flex gap-2">
-                    <Input
-                      type="text"
-                      placeholder="매장에서 받은 코드"
-                      value={customerCode}
-                      onChange={(e) => {
-                        setCustomerCode(e.target.value.toUpperCase());
-                        setCustomerCodeValid(null);
-                      }}
-                    />
-                    <Button type="button" variant="outline" onClick={checkCustomerCode}>확인</Button>
-                  </div>
-                  {customerCodeValid === false && <p className="text-sm text-destructive">유효하지 않거나 만료된 코드입니다.</p>}
-                </div>
-                {customerCodeValid && customerInviteShopName && (
-                  <>
-                    <p className="text-sm text-muted-foreground"><strong className="text-foreground">{customerInviteShopName}</strong> 매장 고객으로 가입합니다.</p>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground">이름</label>
-                      <Input type="text" placeholder="이름" value={customerSignName} onChange={(e) => setCustomerSignName(e.target.value)} autoComplete="name" />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground">이메일</label>
-                      <Input type="email" placeholder="email@example.com" value={customerSignEmail} onChange={(e) => setCustomerSignEmail(e.target.value)} autoComplete="email" />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground">아이디</label>
-                      <Input type="text" placeholder="로그인 아이디" value={customerSignLoginId} onChange={(e) => setCustomerSignLoginId(e.target.value)} autoComplete="username" />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground">비밀번호</label>
-                      <Input type="password" placeholder="비밀번호" value={customerSignPassword} onChange={(e) => setCustomerSignPassword(e.target.value)} autoComplete="new-password" />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-foreground">비밀번호 확인</label>
-                      <Input type="password" placeholder="비밀번호 다시 입력" value={customerSignPasswordConfirm} onChange={(e) => setCustomerSignPasswordConfirm(e.target.value)} autoComplete="new-password" />
-                    </div>
-                    {customerError && <p className="text-sm text-destructive">{customerError}</p>}
-                    <Button type="submit" className="w-full" size="lg">고객으로 가입</Button>
-                  </>
-                )}
-              </form>
-            )}
-
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border" /></div>
-              <div className="relative flex justify-center text-xs uppercase text-muted-foreground"><span className="bg-card px-2">또는</span></div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <button type="button" onClick={() => handleSocialLogin("구글")} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-[#dadce0] bg-white text-[#3c4043] shadow-sm transition-colors hover:bg-[#f8f9fa] dark:border-border dark:bg-[#303134] dark:text-[#e8eaed] dark:hover:bg-[#3c4043]">
-                <GoogleIcon className="h-5 w-5 shrink-0" /><span className="text-sm font-medium">Google로 로그인</span>
-              </button>
-              <button type="button" onClick={() => handleSocialLogin("네이버")} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#03C75A] text-white shadow-sm transition-opacity hover:opacity-95">
-                <NaverIcon className="h-5 w-5 shrink-0" /><span className="text-sm font-medium">네이버로 로그인</span>
-              </button>
-              <button type="button" onClick={() => handleSocialLogin("카카오톡")} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#FEE500] text-[#191919] shadow-sm transition-opacity hover:opacity-95">
-                <KakaoIcon className="h-5 w-5 shrink-0" /><span className="text-sm font-medium">카카오로 로그인</span>
-              </button>
-              <button type="button" onClick={() => handleSocialLogin("페이스북")} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#1877F2] text-white shadow-sm transition-opacity hover:opacity-95">
-                <FacebookIcon className="h-5 w-5 shrink-0" /><span className="text-sm font-medium">Facebook으로 로그인</span>
-              </button>
-            </div>
           </CardContent>
         </Card>
         <p className="mt-6 text-center text-sm text-muted-foreground">

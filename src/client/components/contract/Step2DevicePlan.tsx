@@ -1,56 +1,105 @@
+/**
+ * Step 2: 기기 및 요금제 선택 컴포넌트
+ * 
+ * 역할:
+ * - 기기 모델, 용량, 색상 선택
+ * - IMEI 번호 입력
+ * - 요금제 선택 및 가입 유형 설정
+ * - 공시지원금/선택약정 적용 여부 선택
+ * - 실시간 정산 미리보기 표시
+ * 
+ * 특징:
+ * - 모델 선택 시 출고가와 공시지원금 자동 설정
+ * - 요금제 선택 시 리베이트 자동 반영
+ * - 정산 정보 실시간 업데이트
+ * 
+ * @file Step2DevicePlan.tsx
+ */
+
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   useContractStore,
-  MOCK_MODELS,
-  MOCK_PLANS,
   type JoinType,
 } from "@/client/store/useContractStore";
+import { usePolicyStore } from "@/client/store/usePolicyStore";
 
+/**
+ * 공통 select 요소 스타일 클래스
+ */
 const selectClassName =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 
-function modelOptionKey(m: (typeof MOCK_MODELS)[0]) {
-  return `${m.name} ${m.capacity}`;
+/**
+ * 모델 옵션 키 생성 함수
+ * 
+ * 모델명과 용량을 조합하여 select 옵션의 value로 사용합니다.
+ * 
+ * @param policy - 기기 정책 객체
+ * @returns "모델명 용량" 형식의 문자열
+ */
+function modelOptionKey(policy: { name: string; capacity: string }) {
+  return `${policy.name} ${policy.capacity}`;
 }
 
+/**
+ * Step 2: 기기 및 요금제 선택 컴포넌트
+ * 
+ * 계약 생성 마법사의 두 번째 단계로,
+ * 기기와 요금제를 선택하고 정산 정보를 미리 확인할 수 있습니다.
+ */
 export function Step2DevicePlan() {
   const device = useContractStore((s) => s.device);
   const plan = useContractStore((s) => s.plan);
   const settlement = useContractStore((s) => s.settlement);
   const setDevice = useContractStore((s) => s.setDevice);
   const setPlan = useContractStore((s) => s.setPlan);
+  
+  // 정책 스토어에서 최신 정책 데이터 가져오기
+  const devicePolicies = usePolicyStore((s) => s.devicePolicies);
+  const planPolicies = usePolicyStore((s) => s.planPolicies);
 
-  const currentMock = MOCK_MODELS.find(
-    (m) => modelOptionKey(m) === (device.model && device.capacity ? `${device.model} ${device.capacity}` : device.model)
+  // 현재 선택된 기기 정책 찾기
+  const currentDevicePolicy = devicePolicies.find(
+    (p) => p.name === device.model && p.capacity === device.capacity
   );
 
+  /**
+   * 기기 모델 변경 핸들러
+   * 
+   * 정책 스토어에서 선택한 모델의 정책을 가져와서
+   * 출고가와 공시지원금을 자동으로 설정합니다.
+   */
   const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
     if (!value) {
       setDevice({ model: "", capacity: "", color: "", factory_price: 0, subsidy: 0 });
       return;
     }
-    const mock = MOCK_MODELS.find((m) => modelOptionKey(m) === value);
-    if (mock) {
+    // 정책 스토어에서 선택한 모델 정책 찾기
+    const policy = devicePolicies.find((p) => modelOptionKey(p) === value);
+    if (policy) {
       setDevice({
-        model: mock.name,
-        capacity: mock.capacity,
-        color: mock.colors[0] ?? "",
-        factory_price: mock.factory_price,
-        subsidy: mock.defaultSubsidy,
+        model: policy.name,
+        capacity: policy.capacity,
+        color: policy.colors[0] ?? "",
+        factory_price: policy.factory_price,
+        subsidy: policy.defaultSubsidy,
       });
     }
   };
 
+  /**
+   * 요금제 변경 핸들러
+   */
   const handlePlanChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const name = e.target.value;
     setPlan({ planName: name });
   };
 
-  const displayModelValue = device.model && device.capacity ? `${device.model} ${device.capacity}` : device.model || "";
+  const displayModelValue = device?.model && device?.capacity ? `${device.model} ${device.capacity}` : (device?.model ?? "");
 
   return (
     <div className="space-y-6">
@@ -70,9 +119,9 @@ export function Step2DevicePlan() {
               className={selectClassName}
             >
               <option value="">선택하세요</option>
-              {MOCK_MODELS.map((m) => (
-                <option key={m.id} value={modelOptionKey(m)}>
-                  {m.name} {m.capacity}
+              {devicePolicies.map((policy) => (
+                <option key={policy.id} value={modelOptionKey(policy)}>
+                  {policy.name} {policy.capacity}
                 </option>
               ))}
             </select>
@@ -88,7 +137,7 @@ export function Step2DevicePlan() {
               className={selectClassName}
             >
               <option value="">선택하세요</option>
-              {(currentMock?.colors ?? []).map((c) => (
+              {(currentDevicePolicy?.colors ?? []).map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
@@ -140,9 +189,9 @@ export function Step2DevicePlan() {
               className={selectClassName}
             >
               <option value="">선택하세요</option>
-              {MOCK_PLANS.map((p) => (
-                <option key={p.id} value={p.name}>
-                  {p.name} ({p.monthlyFee.toLocaleString()}원/월)
+              {planPolicies.map((policy) => (
+                <option key={policy.id} value={policy.name}>
+                  {policy.name} ({policy.monthlyFee.toLocaleString()}원/월)
                 </option>
               ))}
             </select>

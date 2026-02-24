@@ -1,5 +1,25 @@
+/**
+ * 계약 마법사 스테퍼 컴포넌트
+ * 
+ * 역할:
+ * - 계약 생성 과정의 진행 단계를 시각적으로 표시
+ * - 현재 단계, 완료된 단계, 남은 단계를 구분하여 표시
+ * 
+ * 단계 구성:
+ * - Step 0: 기본 정보
+ * - Step 1: 고객 정보
+ * - Step 2: 기기·요금제
+ * - Step 3: 할인·부가
+ * - Step 4: 정산·저장
+ * 
+ * @file ContractWizardStepper.tsx
+ */
+
 "use client";
 
+/**
+ * 계약 마법사 단계 목록
+ */
 const STEPS = [
   { id: 0, label: "기본 정보" },
   { id: 1, label: "고객 정보" },
@@ -10,10 +30,19 @@ const STEPS = [
 
 type StepId = (typeof STEPS)[number]["id"];
 
+/**
+ * ContractWizardStepper 컴포넌트 Props
+ */
 interface ContractWizardStepperProps {
-  currentStep: StepId;
+  currentStep: StepId; // 현재 진행 중인 단계 ID
 }
 
+/**
+ * 계약 마법사 스테퍼 컴포넌트
+ * 
+ * 계약 생성 과정의 진행 상황을 시각적으로 표시합니다.
+ * 현재 단계는 활성화 상태로, 완료된 단계는 체크 표시로 표시됩니다.
+ */
 export function ContractWizardStepper({ currentStep }: ContractWizardStepperProps) {
   return (
     <nav aria-label="진행 단계" className="w-full">

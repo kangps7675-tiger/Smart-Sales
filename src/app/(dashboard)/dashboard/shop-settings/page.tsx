@@ -1,3 +1,19 @@
+/**
+ * 매장 설정 페이지
+ * 
+ * 역할:
+ * - 매장별 마진 정책 설정
+ * - 실적 목표 설정
+ * - 매장 정보 관리
+ * 
+ * 접근 권한:
+ * - tenant_admin: 본인 매장 설정만 가능
+ * - super_admin: 모든 매장 설정 가능
+ * - staff: 접근 불가 (대시보드로 리다이렉트)
+ * 
+ * @file page.tsx
+ */
+
 "use client";
 
 import { useEffect } from "react";
@@ -6,6 +22,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/client/store/useAuthStore";
 
+/**
+ * 매장 설정 페이지 컴포넌트
+ * 
+ * 매장주와 슈퍼 어드민이 매장별 설정을 관리할 수 있습니다.
+ */
 export default function ShopSettingsPage() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);

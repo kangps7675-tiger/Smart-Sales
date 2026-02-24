@@ -28,10 +28,24 @@ const buttonVariants = cva(
   }
 );
 
+/**
+ * Button 컴포넌트 Props 인터페이스
+ * 
+ * HTML button 요소의 모든 속성과 variant, size를 포함합니다.
+ */
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {}
 
+/**
+ * Button 컴포넌트
+ * 
+ * 재사용 가능한 버튼 컴포넌트로, variant와 size를 통해 다양한 스타일을 지원합니다.
+ * 
+ * @example
+ * <Button variant="default" size="lg">클릭</Button>
+ * <Button variant="outline" size="sm">취소</Button>
+ */
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, ...props }, ref) => (
     <button

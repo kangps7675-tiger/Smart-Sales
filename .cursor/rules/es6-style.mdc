@@ -1,0 +1,32 @@
+---
+description: JavaScript/TypeScript는 ES6+ 문법을 기본으로 작성한다.
+globs: **/*.{ts,tsx,js,jsx,mjs,cjs}
+alwaysApply: true
+---
+
+# ES6+ 스타일 기본
+
+**정 안 되는 것만 예외로 두고, 나머지는 전부 ES6+로 작성한다.**
+(예: `this` 바인딩이 꼭 필요할 때, 레거시 API/환경 제약이 있을 때만 예외 허용)
+
+## 사용할 것
+
+- **변수**: `var` 금지 → `const`(기본), 재할당 시에만 `let`
+- **문자열**: `"a" + x + "b"` 대신 템플릿 리터럴 `` `a${x}b` ``
+- **함수**: 콜백·간단한 함수는 화살표 함수. `this`가 필요할 때만 `function`
+- **옵션 체이닝**: `obj && obj.prop` → `obj?.prop`
+- **nullish coalescing**: null/undefined 기본값은 `x ?? default` (의도가 “빈 문자열도 기본값”이면 `x || default` 유지)
+- **배열 순회**: 인덱스 불필요하면 `for (const item of arr)` 또는 `arr.forEach` / `arr.map` 등
+- **구조 분해**: `const { a, b } = obj`, `const [first, ...rest] = arr`
+- **스프레드**: `{ ...obj }`, `[...arr]`
+- **배열 메서드**: `includes()`, `find()`, `findIndex()`, `some()`, `every()` 등 활용 (가능하면 `indexOf !== -1` 대신 `includes`)
+
+## 피할 것
+
+- `var`, 문자열 결합용 `+`, 불필요한 C스타일 `for` 루프
+
+## 예외 (정 안 될 때만)
+
+- **`function`**: `this`를 쓰는 메서드·생성자·이벤트 핸들러 등에서만 사용
+- **구버전 문법**: 타겟 환경·라이브러리·빌드 제약으로 ES6가 불가할 때만
+- 그 외에는 모두 ES6+ 적용

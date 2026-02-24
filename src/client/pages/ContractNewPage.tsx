@@ -32,6 +32,13 @@ export default function ContractNewPage() {
   const getPayload = useContractStore((s) => s.getPayload);
   const reset = useContractStore((s) => s.reset);
 
+  /**
+   * 계약 저장 처리 핸들러
+   * 
+   * 현재 입력된 계약 정보를 저장하고,
+   * 일일 보고서 모달을 열어 저장된 계약 목록을 표시합니다.
+   * 저장 후 폼을 초기화하고 첫 단계로 돌아갑니다.
+   */
   const handleSave = () => {
     const payload = getPayload();
     setDailyReport((prev) => [
@@ -43,6 +50,11 @@ export default function ContractNewPage() {
     setCurrentStep(0);
   };
 
+  /**
+   * 다음 단계로 이동
+   * 
+   * 마지막 단계가 아니면 다음 단계로 진행합니다.
+   */
   const goNext = () => {
     if (currentStep < totalSteps - 1) {
       setCurrentStep((s) => (s + 1) as StepId);

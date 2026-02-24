@@ -1,14 +1,42 @@
+/**
+ * 슈퍼 어드민 가입 페이지
+ * 
+ * 역할:
+ * - 슈퍼 어드민 계정 생성
+ * - 가입 키 검증 후 가입 진행
+ * 
+ * 보안:
+ * - 가입 키 검증 필수
+ * - 가입 키는 useAuthStore에서 관리
+ * 
+ * @file page.tsx
+ */
+
 "use client";
 
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Cormorant_Garamond } from "next/font/google";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuthStore } from "@/client/store/useAuthStore";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { validatePassword } from "@/lib/password-validation";
 
+const logoFont = Cormorant_Garamond({
+  subsets: ["latin"],
+  weight: "600",
+});
+
+/**
+ * 슈퍼 어드민 가입 페이지 컴포넌트
+ * 
+ * 2단계 가입 프로세스:
+ * 1. 가입 키 입력 및 검증
+ * 2. 관리자 정보 입력 및 가입 완료
+ */
 export default function SignupSuperAdminPage() {
   const router = useRouter();
   const verifySuperAdminSignupPassword = useAuthStore((s) => s.verifySuperAdminSignupPassword);
@@ -22,9 +50,20 @@ export default function SignupSuperAdminPage() {
   const [loginId, setLoginId] = useState("");
   const [submitError, setSubmitError] = useState("");
 
+  /**
+   * 가입 키 검증 핸들러
+   * 
+   * 입력된 가입 키가 올바른지 검증하고,
+   * 성공 시 다음 단계(정보 입력)로 진행합니다.
+   */
   const handleKeySubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setKeyError("");
+    const pwdCheck = validatePassword(key.trim());
+    if (!pwdCheck.valid) {
+      setKeyError(pwdCheck.message ?? "가입 키는 8자 이상, 특수문자를 포함해야 합니다.");
+      return;
+    }
     if (verifySuperAdminSignupPassword(key.trim())) {
       setStep("form");
     } else {
@@ -32,31 +71,42 @@ export default function SignupSuperAdminPage() {
     }
   };
 
-  const handleSignUp = (e: React.FormEvent) => {
+  /**
+   * 슈퍼 어드민 가입 처리 핸들러
+   * 
+   * 입력된 정보로 슈퍼 어드민 계정을 생성하고,
+   * 성공 시 대시보드로 이동합니다.
+   */
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError("");
+    const pwdCheck = validatePassword(key.trim());
+    if (!pwdCheck.valid) {
+      setSubmitError(pwdCheck.message ?? "가입 키는 8자 이상, 특수문자를 포함해야 합니다.");
+      return;
+    }
     if (!name.trim() || !email.trim() || !loginId.trim()) {
       setSubmitError("이름, 이메일, 로그인 아이디를 모두 입력하세요.");
       return;
     }
-    const success = signUpAsSuperAdmin(
+    const result = await signUpAsSuperAdmin(
       { name: name.trim(), email: email.trim(), loginId: loginId.trim() },
       key.trim()
     );
-    if (success) {
+    if (result.success) {
       router.push("/dashboard");
     } else {
-      setSubmitError("가입에 실패했습니다. 가입 키를 다시 확인하세요.");
+      setSubmitError(result.error ?? "가입에 실패했습니다. 가입 키를 다시 확인하세요.");
     }
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" suppressHydrationWarning>
       <header className="sticky top-0 z-50 border-b border-border/80 bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2 font-semibold text-foreground">
             <span className="text-xl">📱</span>
-            <span>Smart Sales</span>
+            <span className={`text-2xl ${logoFont.className}`}>Smart Sales</span>
           </Link>
           <ThemeToggle />
         </div>

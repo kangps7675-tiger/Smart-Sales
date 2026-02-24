@@ -1,3 +1,19 @@
+/**
+ * Tailwind CSS 설정 파일
+ * 
+ * 역할:
+ * - Tailwind CSS 컴파일 대상 경로 설정
+ * - 커스텀 색상 변수 정의 (다크 모드 지원)
+ * - 테마 확장 설정
+ * 
+ * 주요 설정:
+ * - content: Tailwind가 스캔할 파일 경로
+ * - theme.extend: CSS 변수를 사용한 커스텀 색상 및 테마
+ * - plugins: tailwindcss-animate 플러그인 사용
+ * 
+ * @file tailwind.config.ts
+ */
+
 import type { Config } from "tailwindcss";
 
 const config: Config = {
@@ -28,7 +44,6 @@ const config: Config = {
         ring: "var(--ring)",
         destructive: "var(--destructive)",
         "destructive-foreground": "var(--destructive-foreground)",
-        "ring": "var(--ring)",
         "sidebar": "var(--sidebar)",
         "sidebar-foreground": "var(--sidebar-foreground)",
         "sidebar-accent": "var(--sidebar-accent)",

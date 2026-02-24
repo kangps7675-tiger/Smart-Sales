@@ -1,17 +1,50 @@
+/**
+ * Step 3: 할인 및 부가서비스 선택 컴포넌트
+ * 
+ * 역할:
+ * - 결합 할인 적용 여부 선택
+ * - 부가서비스 선택 (다중 선택 가능)
+ * - 월 납부금 시뮬레이션 표시
+ * - 매장 마진 미리보기
+ * 
+ * 특징:
+ * - 부가서비스 선택 시 매장 마진 자동 재계산
+ * - 월 납부금 실시간 업데이트
+ * - 무료 부가서비스 표시
+ * 
+ * @file Step3DiscountAddOn.tsx
+ */
+
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useContractStore, MOCK_ADDONS, MOCK_PLANS } from "@/client/store/useContractStore";
+import { useContractStore } from "@/client/store/useContractStore";
+import { usePolicyStore } from "@/client/store/usePolicyStore";
 
+/**
+ * Step 3: 할인 및 부가서비스 선택 컴포넌트
+ * 
+ * 계약 생성 마법사의 세 번째 단계로,
+ * 할인 및 부가서비스를 선택하고 최종 가격을 확인할 수 있습니다.
+ */
 export function Step3DiscountAddOn() {
   const discount = useContractStore((s) => s.discount);
   const plan = useContractStore((s) => s.plan);
   const settlement = useContractStore((s) => s.settlement);
   const setDiscount = useContractStore((s) => s.setDiscount);
+  
+  // 정책 스토어에서 최신 정책 데이터 가져오기
+  const addOnPolicies = usePolicyStore((s) => s.addOnPolicies);
+  const getPlanPolicyByName = usePolicyStore((s) => s.getPlanPolicyByName);
+  const getAddOnPolicyById = usePolicyStore((s) => s.getAddOnPolicyById);
 
-  const selectedPlan = MOCK_PLANS.find((p) => p.name === plan.planName);
-  const monthlyFee = selectedPlan?.monthlyFee ?? 0;
+  // 선택한 요금제의 월 요금 조회 (정책 스토어에서)
+  const selectedPlanPolicy = getPlanPolicyByName(plan.planName);
+  const monthlyFee = selectedPlanPolicy?.monthlyFee ?? 0;
 
+  /**
+   * 부가서비스 토글 핸들러
+   */
   const toggleAddOn = (id: string) => {
     const current = discount.addOnServices;
     const next = current.includes(id)
@@ -20,9 +53,12 @@ export function Step3DiscountAddOn() {
     setDiscount({ addOnServices: next });
   };
 
+  /**
+   * 선택한 부가서비스들의 총 가격 계산 (정책 스토어에서)
+   */
   const addOnTotal = discount.addOnServices.reduce((sum, id) => {
-    const addon = MOCK_ADDONS.find((a) => a.id === id);
-    return sum + (addon?.price ?? 0);
+    const addonPolicy = getAddOnPolicyById(id);
+    return sum + (addonPolicy?.price ?? 0);
   }, 0);
 
   return (
@@ -50,20 +86,20 @@ export function Step3DiscountAddOn() {
         </CardHeader>
         <CardContent>
           <ul className="space-y-1">
-            {MOCK_ADDONS.map((addon) => (
-              <li key={addon.id}>
+            {addOnPolicies.map((policy) => (
+              <li key={policy.id}>
                 <label className="flex cursor-pointer items-center justify-between gap-2 rounded-md px-3 py-2.5 hover:bg-muted/50">
                   <span className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={discount.addOnServices.includes(addon.id)}
-                      onChange={() => toggleAddOn(addon.id)}
+                      checked={discount.addOnServices.includes(policy.id)}
+                      onChange={() => toggleAddOn(policy.id)}
                       className="rounded border-input"
                     />
-                    <span className="text-sm">{addon.name}</span>
+                    <span className="text-sm">{policy.name}</span>
                   </span>
                   <span className="text-xs tabular-nums text-muted-foreground">
-                    {addon.price > 0 ? `${addon.price.toLocaleString()}원` : "무료"}
+                    {policy.price > 0 ? `${policy.price.toLocaleString()}원` : "무료"}
                   </span>
                 </label>
               </li>
