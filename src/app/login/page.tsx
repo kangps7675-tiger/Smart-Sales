@@ -185,7 +185,7 @@ function LoginPageInner() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-md px-4 py-12 sm:py-16">
+      <main className="mx-auto w-full max-w-md px-4 py-10 sm:py-16">
         <Card>
           <CardHeader className="space-y-1 pb-4">
             <div className="flex rounded-lg bg-muted p-1">
