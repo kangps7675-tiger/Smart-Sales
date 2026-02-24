@@ -23,6 +23,8 @@ interface CustomerSummary {
   lastSaleDate: string;
   lastProductName: string;
   lastPlanName: string;
+  /** 최근 거래 담당 판매사 (어떤 직원이 이 고객을 상대했는지) */
+  lastSalesPerson: string;
   totalCount: number;
   totalAmount: number;
   totalMargin: number;
@@ -105,6 +107,7 @@ export default function CustomersPage() {
         lastSaleDate: latest.saleDate || "",
         lastProductName: latest.productName || "",
         lastPlanName: latest.planName || "",
+        lastSalesPerson: (latest.salesPerson ?? "").trim() || "—",
         totalCount: v.totalCount,
         totalAmount: v.totalAmount,
         totalMargin: v.totalMargin,
@@ -180,7 +183,7 @@ export default function CustomersPage() {
           <div>
             <CardTitle className="text-base">고객 명부</CardTitle>
             <CardDescription>
-              이름·연락처 기준으로 중복을 합쳐 고객별로 정리했습니다. 검색창에 이름이나 번호 일부를 입력해 찾아보세요.
+              이름·연락처 기준으로 고객을 구분합니다 (동명이인 구별). 담당 판매사는 최근 거래 기준입니다. 검색창에 이름이나 번호 일부를 입력해 찾아보세요.
             </CardDescription>
           </div>
           <div className="w-full max-w-xs">
@@ -209,6 +212,7 @@ export default function CustomersPage() {
                   <tr>
                     <th className="px-3 py-2.5 font-medium text-muted-foreground">고객명</th>
                     <th className="px-3 py-2.5 font-medium text-muted-foreground">연락처</th>
+                    <th className="px-3 py-2.5 font-medium text-muted-foreground">담당 판매사</th>
                     <th className="px-3 py-2.5 font-medium text-muted-foreground">최근 거래일</th>
                     <th className="px-3 py-2.5 font-medium text-muted-foreground">최근 단말기/요금제</th>
                     <th className="px-3 py-2.5 font-medium text-muted-foreground">유입 경로</th>
@@ -224,6 +228,7 @@ export default function CustomersPage() {
                       <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
                         {c.phone || "—"}
                       </td>
+                      <td className="px-3 py-2 text-muted-foreground">{c.lastSalesPerson}</td>
                       <td className="px-3 py-2 tabular-nums">
                         {c.lastSaleDate ? c.lastSaleDate.slice(0, 10) : "—"}
                       </td>

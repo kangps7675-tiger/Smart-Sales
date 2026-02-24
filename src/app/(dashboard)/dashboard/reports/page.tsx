@@ -210,6 +210,18 @@ export default function ReportsPage() {
     return getSalesPersonSalaryRows(list);
   }, [entriesRaw, shopId, canShowSalary]);
 
+  /** 판매사(staff) 전용: 로그인한 본인 이름과 일치하는 판매 건만 집계한 "나의 실적" */
+  const isStaff = user?.role === "staff";
+  const myPerformanceRow = useMemo(() => {
+    if (!shopId || !isStaff || !user?.name?.trim()) return null;
+    const myName = user.name.trim();
+    const list = entriesRaw.filter(
+      (e) => e.shopId === shopId && (e.salesPerson ?? "").trim() === myName
+    );
+    const rows = getSalesPersonSalaryRows(list);
+    return rows.length > 0 ? rows[0] : null;
+  }, [entriesRaw, shopId, isStaff, user?.name]);
+
   /**
    * 슈퍼 어드민이거나 매장이 여러 개면 첫 번째 매장을 자동 선택
    * 
@@ -324,6 +336,49 @@ export default function ReportsPage() {
                 </tbody>
               </table>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {isStaff && shopId && (
+        <Card className="border-border/50">
+          <CardHeader>
+            <CardTitle>나의 실적</CardTitle>
+            <CardDescription>
+              판매일보에 본인 이름이 &quot;판매사&quot;로 기재된 건만 집계합니다. 건당 3만원 인센티브 기준 예상 급여가 표시됩니다.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {myPerformanceRow ? (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left text-sm">
+                  <thead className="border-b border-border/50 bg-muted/60">
+                    <tr>
+                      <th className="px-4 py-3 font-medium text-muted-foreground">판매사</th>
+                      <th className="px-4 py-3 font-medium text-muted-foreground text-right">건수</th>
+                      <th className="px-4 py-3 font-medium text-muted-foreground text-right">마진 합계</th>
+                      <th className="px-4 py-3 font-medium text-muted-foreground text-right">지원금 합계</th>
+                      <th className="px-4 py-3 font-medium text-muted-foreground text-right">계산 급여</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-border/30">
+                      <td className="px-4 py-3 font-medium">{myPerformanceRow.salesPerson}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{myPerformanceRow.count}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{myPerformanceRow.totalMargin.toLocaleString()}원</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{myPerformanceRow.totalSupport.toLocaleString()}원</td>
+                      <td className="px-4 py-3 text-right tabular-nums font-medium text-primary">
+                        {myPerformanceRow.calculatedSalary.toLocaleString()}원
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                기록된 판매 실적이 없습니다. 판매일보의 &quot;판매사&quot; 필드에 본인 이름이 기재된 건만 집계됩니다. 동명이인은 이름·연락처로 구분됩니다.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
