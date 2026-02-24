@@ -49,11 +49,13 @@ export default function LandingPage() {
       <section className="border-b border-border/40 bg-gradient-to-b from-background to-muted/40 px-4 py-24 sm:py-32 lg:py-36">
         <div className="mx-auto max-w-3xl text-center">
           <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl lg:text-[2.75rem] lg:leading-tight">
-            휴대폰 매장 운영, 한 화면에서 정리 끝.
+            휴대폰 매장 운영,
+            <br />
+            한 화면에서 정리 끝.
           </h1>
           <p className="mt-6 text-sm text-muted-foreground sm:text-base">
             판매일보, 직원·매장 관리, 급여 계산, 정책 단가까지.
-            <br className="hidden sm:inline" />
+            <br />
             엑셀 없이도 매일의 숫자를 안전하게 정리해 드립니다.
           </p>
           <div className="mt-10 flex flex-col items-center gap-3">
