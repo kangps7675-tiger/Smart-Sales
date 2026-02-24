@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "powershell -ExecutionPolicy Bypass -File ./scripts/dev-auto-recover.ps1",
     "dev:direct": "npx next dev -p 3000",
-    "build": "powershell -ExecutionPolicy Bypass -File ./scripts/build-auto-recover.ps1",
+    "build": "npx next build",
     "build:direct": "npx next build",
     "start": "npx next start",
     "lint": "npx next lint",
