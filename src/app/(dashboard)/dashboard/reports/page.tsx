@@ -17,7 +17,7 @@
 
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExcelUpload } from "@/components/reports/excel-upload";
 import { QuickAddReportModal } from "@/components/reports/quick-add-report-modal";
@@ -27,6 +27,20 @@ import { useReportsStore, type ReportEntry } from "@/client/store/useReportsStor
 import { getSalesPersonSalaryRows } from "@/lib/salary-calc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+/** DB에 저장된 급여 스냅샷 한 건 */
+interface SalarySnapshot {
+  id: string;
+  shop_id: string;
+  sales_person: string;
+  period_start: string;
+  period_end: string;
+  sale_count: number;
+  total_margin: number;
+  total_support: number;
+  calculated_salary: number;
+  created_at: string;
+}
 
 /**
  * 판매일보 페이지 컴포넌트
@@ -52,6 +66,12 @@ export default function ReportsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Partial<ReportEntry> | null>(null);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+
+  /** 급여 DB 저장·이력 */
+  const [salaryHistory, setSalaryHistory] = useState<SalarySnapshot[]>([]);
+  const [salaryHistoryLoading, setSalaryHistoryLoading] = useState(false);
+  const [saveSalaryLoading, setSaveSalaryLoading] = useState(false);
+  const [salaryToast, setSalaryToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // 개별 매장(지점): 해당 매장만 표시. 슈퍼 어드민만 매장 선택 가능.
   const isSuperAdmin = user?.role === "super_admin";
@@ -234,6 +254,76 @@ export default function ReportsPage() {
     }
   }, [isSuperAdmin, shops, selectedShopId]);
 
+  /** 급여 이력 조회 (매장주/슈퍼어드민: 전체, 판매사: 본인만) */
+  const loadSalaryHistory = useCallback(async () => {
+    if (!shopId) return;
+    setSalaryHistoryLoading(true);
+    try {
+      const params = new URLSearchParams({ shop_id: shopId, role: user?.role ?? "" });
+      if (user?.role === "staff" && user?.name?.trim()) params.set("sales_person", user.name.trim());
+      const res = await fetch(`/api/salaries?${params}`);
+      const json = await res.json().catch(() => []);
+      setSalaryHistory(Array.isArray(json) ? (json as SalarySnapshot[]) : []);
+    } catch {
+      setSalaryHistory([]);
+    } finally {
+      setSalaryHistoryLoading(false);
+    }
+  }, [shopId, user?.role, user?.name]);
+
+  useEffect(() => {
+    if (!shopId || !user) return;
+    if (user.role === "tenant_admin" || user.role === "super_admin" || user.role === "staff") {
+      loadSalaryHistory();
+    }
+  }, [shopId, user, loadSalaryHistory]);
+
+  /** 현재 월 기준으로 급여 스냅샷 저장 */
+  const handleSaveSalarySnapshot = useCallback(async () => {
+    if (!user || !shopId || !canShowSalary || salesPersonSalaryRows.length === 0) return;
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const periodStart = `${y}-${String(m + 1).padStart(2, "0")}-01`;
+    const periodEnd = new Date(y, m + 1, 0).toISOString().slice(0, 10);
+
+    setSaveSalaryLoading(true);
+    setSalaryToast(null);
+    try {
+      const res = await fetch("/api/salaries", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-role": user.role,
+        },
+        body: JSON.stringify({
+          shop_id: shopId,
+          period_start: periodStart,
+          period_end: periodEnd,
+          rows: salesPersonSalaryRows.map((r) => ({
+            salesPerson: r.salesPerson,
+            count: r.count,
+            totalMargin: r.totalMargin,
+            totalSupport: r.totalSupport,
+            calculatedSalary: r.calculatedSalary,
+          })),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSalaryToast({ type: "error", text: json?.error ?? "급여 저장에 실패했습니다." });
+        return;
+      }
+      setSalaryToast({ type: "success", text: "이번 달 급여가 DB에 저장되었습니다." });
+      setTimeout(() => setSalaryToast(null), 3000);
+      loadSalaryHistory();
+    } catch {
+      setSalaryToast({ type: "error", text: "급여 저장 중 오류가 발생했습니다." });
+    } finally {
+      setSaveSalaryLoading(false);
+    }
+  }, [user, shopId, canShowSalary, salesPersonSalaryRows, loadSalaryHistory]);
+
   return (
     <div className="space-y-8">
       <div className="flex items-start justify-between gap-4">
@@ -385,11 +475,21 @@ export default function ReportsPage() {
 
       {canShowSalary && shopId && salesPersonSalaryRows.length > 0 && (
         <Card className="border-border/50">
-          <CardHeader>
-            <CardTitle>판매사별 급여</CardTitle>
-            <CardDescription>
-              판매일보 기준 급여 계산 (건당 3만원 인센티브). 매장주·본사만 조회 가능합니다.
-            </CardDescription>
+          <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+            <div>
+              <CardTitle>판매사별 급여</CardTitle>
+              <CardDescription>
+                판매일보 기준 급여 계산 (건당 3만원 인센티브). 매장주·본사만 조회 가능합니다. 저장 시 DB에 이력이 쌓입니다.
+              </CardDescription>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={saveSalaryLoading}
+              onClick={handleSaveSalarySnapshot}
+            >
+              {saveSalaryLoading ? "저장 중..." : "이번 달 급여 저장"}
+            </Button>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -420,6 +520,75 @@ export default function ReportsPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {(canShowSalary || isStaff) && shopId && (
+        <Card className="border-border/50">
+          <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
+            <div>
+              <CardTitle>급여 이력</CardTitle>
+              <CardDescription>
+                DB에 저장된 급여 스냅샷입니다. 매장주·본사는 전체, 판매사는 본인만 표시됩니다.
+              </CardDescription>
+            </div>
+            <Button type="button" variant="ghost" size="sm" onClick={loadSalaryHistory} disabled={salaryHistoryLoading}>
+              {salaryHistoryLoading ? "불러오는 중..." : "새로고침"}
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {salaryHistoryLoading && salaryHistory.length === 0 ? (
+              <p className="text-sm text-muted-foreground">이력을 불러오는 중...</p>
+            ) : salaryHistory.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                저장된 급여 이력이 없습니다. 위 &quot;이번 달 급여 저장&quot;으로 저장하면 여기에 쌓입니다.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left text-sm">
+                  <thead className="border-b border-border/50 bg-muted/60">
+                    <tr>
+                      <th className="px-4 py-3 font-medium text-muted-foreground">기간</th>
+                      <th className="px-4 py-3 font-medium text-muted-foreground">판매사</th>
+                      <th className="px-4 py-3 font-medium text-muted-foreground text-right">건수</th>
+                      <th className="px-4 py-3 font-medium text-muted-foreground text-right">계산 급여</th>
+                      <th className="px-4 py-3 font-medium text-muted-foreground">저장 일시</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {salaryHistory.map((row) => (
+                      <tr key={row.id} className="border-b border-border/30">
+                        <td className="px-4 py-3 tabular-nums">
+                          {row.period_start} ~ {row.period_end}
+                        </td>
+                        <td className="px-4 py-3">{row.sales_person}</td>
+                        <td className="px-4 py-3 text-right tabular-nums">{row.sale_count}</td>
+                        <td className="px-4 py-3 text-right tabular-nums font-medium">
+                          {Number(row.calculated_salary).toLocaleString()}원
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {row.created_at ? new Date(row.created_at).toLocaleString("ko-KR") : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {salaryToast && (
+        <div
+          className={`fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg px-4 py-3 text-sm font-medium shadow-lg ${
+            salaryToast.type === "success"
+              ? "bg-green-600 text-white dark:bg-green-700"
+              : "bg-destructive text-destructive-foreground"
+          }`}
+          role="alert"
+        >
+          {salaryToast.text}
+        </div>
       )}
 
       <Card className="border-border/50">

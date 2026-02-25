@@ -17,6 +17,7 @@ import { notFound } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabaseAdmin } from "@/server/supabase";
+import { NoticeEditLink } from "./notice-edit-link";
 
 // 공지사항 상세는 Supabase notices 테이블에서 조회합니다.
 
@@ -77,6 +78,7 @@ export default async function NoticeDetailPage({
             ← 목록
           </Button>
         </Link>
+        <NoticeEditLink noticeId={notice.id} />
       </div>
 
       <Card className="border-border/80">
