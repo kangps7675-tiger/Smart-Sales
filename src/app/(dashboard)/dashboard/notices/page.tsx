@@ -171,43 +171,61 @@ export default function NoticesPage() {
             <ul className="divide-y divide-border">
               {pinned.map((notice) => (
                 <li key={notice.id} className="py-4 first:pt-0">
-                  <Link
-                    href={`/dashboard/notices/${notice.id}`}
-                    className="group -m-2 block rounded-lg p-2 transition-colors hover:bg-muted/50"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary">
-                        상단고정
-                      </span>
-                      <span className="text-sm text-muted-foreground">
-                        {formatDate(notice.created_at)}
-                      </span>
-                    </div>
-                    <h3 className="mt-1 font-medium text-foreground group-hover:text-primary">
-                      {notice.title}
-                    </h3>
-                    <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                      {notice.body?.slice(0, 80) ?? ""}
-                    </p>
-                  </Link>
+                  <div className="flex items-start justify-between gap-2">
+                    <Link
+                      href={`/dashboard/notices/${notice.id}`}
+                      className="group -m-2 flex-1 rounded-lg p-2 transition-colors hover:bg-muted/50"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary">
+                          상단고정
+                        </span>
+                        <span className="text-sm text-muted-foreground">
+                          {formatDate(notice.created_at)}
+                        </span>
+                      </div>
+                      <h3 className="mt-1 font-medium text-foreground group-hover:text-primary">
+                        {notice.title}
+                      </h3>
+                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                        {notice.body?.slice(0, 80) ?? ""}
+                      </p>
+                    </Link>
+                    {isSuperAdmin && (
+                      <Link href={`/dashboard/notices/${notice.id}/edit`}>
+                        <Button variant="ghost" size="sm" className="shrink-0 text-muted-foreground">
+                          수정
+                        </Button>
+                      </Link>
+                    )}
+                  </div>
                 </li>
               ))}
               {list.map((notice) => (
                 <li key={notice.id} className="py-4 first:pt-0">
-                  <Link
-                    href={`/dashboard/notices/${notice.id}`}
-                    className="group -m-2 block rounded-lg p-2 transition-colors hover:bg-muted/50"
-                  >
-                    <span className="text-sm text-muted-foreground">
-                      {formatDate(notice.created_at)}
-                    </span>
-                    <h3 className="mt-1 font-medium text-foreground group-hover:text-primary">
-                      {notice.title}
-                    </h3>
-                    <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                      {notice.body?.slice(0, 80) ?? ""}
-                    </p>
-                  </Link>
+                  <div className="flex items-start justify-between gap-2">
+                    <Link
+                      href={`/dashboard/notices/${notice.id}`}
+                      className="group -m-2 flex-1 rounded-lg p-2 transition-colors hover:bg-muted/50"
+                    >
+                      <span className="text-sm text-muted-foreground">
+                        {formatDate(notice.created_at)}
+                      </span>
+                      <h3 className="mt-1 font-medium text-foreground group-hover:text-primary">
+                        {notice.title}
+                      </h3>
+                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                        {notice.body?.slice(0, 80) ?? ""}
+                      </p>
+                    </Link>
+                    {isSuperAdmin && (
+                      <Link href={`/dashboard/notices/${notice.id}/edit`}>
+                        <Button variant="ghost" size="sm" className="shrink-0 text-muted-foreground">
+                          수정
+                        </Button>
+                      </Link>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
