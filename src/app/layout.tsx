@@ -14,6 +14,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { ThemeProvider } from "@/components/theme-provider";
 import { GlobalErrorSetup } from "@/components/global-error-setup";
+import { NavigationLoading } from "@/components/navigation-loading";
 import "./globals.css";
 
 /**
@@ -65,6 +66,7 @@ export default function RootLayout({
       >
         <GlobalErrorSetup />
         <ThemeProvider>
+          <NavigationLoading />
           {children}
         </ThemeProvider>
       </body>

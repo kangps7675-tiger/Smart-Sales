@@ -17,6 +17,7 @@ import Link from "next/link";
 import { Cormorant_Garamond } from "next/font/google";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NavLinkWithLoading } from "@/components/nav-link-with-loading";
 const logoFont = Cormorant_Garamond({
   subsets: ["latin"],
   weight: "600",
@@ -33,14 +34,14 @@ export default function LandingPage() {
           </Link>
           <div className="flex items-center gap-3">
             <ThemeToggle />
-            <Link href="/login">
+            <NavLinkWithLoading href="/login">
               <Button variant="ghost" size="sm" className="text-muted-foreground">
                 로그인
               </Button>
-            </Link>
-            <Link href="/login?tab=tenant_signup">
+            </NavLinkWithLoading>
+            <NavLinkWithLoading href="/login?tab=tenant_signup">
               <Button size="sm">시작하기</Button>
-            </Link>
+            </NavLinkWithLoading>
           </div>
         </div>
       </nav>

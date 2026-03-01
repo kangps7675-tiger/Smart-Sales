@@ -11,6 +11,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { useAuthStore } from "@/client/store/useAuthStore";
 
 /**
  * 엑셀에서 추출한 판매일보 한 건 (고객 + 판매 요약)
@@ -37,12 +38,56 @@ export interface ReportEntry {
   amount: number;
   margin: number;
 
+  /**
+   * 스프레드시트 마진 계산 구성요소
+   * (출고가, 공시지원, 할부원금/개월, 액면, 구두 A~F)
+   * - 아직 UI에서는 사용하지 않고, 업로드/저장 시에만 보존용으로 활용
+   */
+  /** 출고가 */
+  factoryPrice?: number;
+  /** 공시지원 */
+  officialSubsidy?: number;
+  /** 할부원금 */
+  installmentPrincipal?: number;
+  /** 할부 개월수 */
+  installmentMonths?: number;
+  /** 액면 */
+  faceAmount?: number;
+  /** 구두 A~F */
+  verbalA?: number;
+  verbalB?: number;
+  verbalC?: number;
+  verbalD?: number;
+  verbalE?: number;
+  verbalF?: number;
+
   /** 판매사(담당 직원) - 엑셀 헤더: 판매사 */
   salesPerson?: string;
   /** 요금제명 - 엑셀 헤더: 요금제 */
   planName?: string;
   /** 고객 지원금 - 엑셀 헤더: 지원금 */
   supportAmount?: number;
+
+  /** 매장 검수 / 개통 매장 검수 */
+  inspectionStore?: string;
+  /** 사무실 검수 */
+  inspectionOffice?: string;
+  /** 복지 */
+  welfare?: string;
+  /** 보험 */
+  insurance?: string;
+  /** 카드 */
+  card?: string;
+  /** 결합 */
+  combined?: string;
+  /** 유무선 (유선/무선 등) */
+  lineType?: string;
+  /** 유형 */
+  saleType?: string;
+  /** 일련번호 */
+  serialNumber?: string;
+  /** 개통 시간 (스프레드시트) */
+  activationTime?: string;
 }
 
 /**
@@ -117,13 +162,18 @@ export const useReportsStore = create<ReportsState>()(
           if (role) params.set("role", role);
           if (shopId) params.set("shop_id", shopId);
 
-          // super_admin이 아닌데 shopId가 없으면 조회 불가
-          if (role !== "super_admin" && !shopId) {
+          // super_admin / region_manager는 shopId 없이 지점·전체 조회 가능
+          if (role !== "super_admin" && role !== "region_manager" && !shopId) {
             return;
           }
 
           const query = params.toString();
-          const res = await fetch(`/api/reports${query ? `?${query}` : ""}`);
+          const headers: Record<string, string> = {};
+          if (role === "region_manager") {
+            const storeGroupId = useAuthStore.getState().user?.storeGroupId;
+            if (storeGroupId) headers["x-store-group-id"] = storeGroupId;
+          }
+          const res = await fetch(`/api/reports${query ? `?${query}` : ""}`, { headers });
           const json = await res.json().catch(() => [] as ReportEntry[]);
 
           if (!res.ok) {

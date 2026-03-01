@@ -1,16 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '@/server/supabase';
+import { getAuthContext } from '@/server/auth';
 
 const SALT_ROUNDS = 10;
 
 export async function PATCH(req: NextRequest) {
   try {
-    const { user_id, current_password, new_password } = await req.json();
+    const auth = await getAuthContext(req);
+    if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    if (!user_id || !current_password || !new_password) {
+    const { current_password, new_password } = await req.json();
+
+    if (!current_password || !new_password) {
       return NextResponse.json(
-        { error: 'user_id, current_password and new_password are required' },
+        { error: 'current_password and new_password are required' },
         { status: 400 },
       );
     }
@@ -18,7 +22,7 @@ export async function PATCH(req: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from('profiles')
       .select('id, password_hash')
-      .eq('id', user_id)
+      .eq('id', auth.id)
       .maybeSingle();
 
     if (error) {
@@ -41,7 +45,7 @@ export async function PATCH(req: NextRequest) {
     const { error: updateError } = await supabaseAdmin
       .from('profiles')
       .update({ password_hash: newHash })
-      .eq('id', user_id);
+      .eq('id', auth.id);
 
     if (updateError) {
       console.error('Error updating password_hash', updateError);

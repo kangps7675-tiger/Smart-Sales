@@ -7,6 +7,7 @@
  *
  * 접근 권한:
  * - tenant_admin: 본인 매장만
+ * - region_manager: 담당 지점 매장만
  * - super_admin: 모든 매장
  *
  * @file page.tsx
@@ -42,7 +43,7 @@ export default function StaffPage() {
   const [selectedShopId, setSelectedShopId] = useState<string | null>(null);
   const [newInvite, setNewInvite] = useState<{ code: string; shopName: string } | null>(null);
 
-  const canManage = user?.role === "tenant_admin" || user?.role === "super_admin";
+  const canManage = user?.role === "tenant_admin" || user?.role === "super_admin" || user?.role === "region_manager";
 
   useEffect(() => {
     if (!user) router.replace("/login");
@@ -84,7 +85,7 @@ export default function StaffPage() {
         <p className="mt-2 text-muted-foreground">초대 코드를 발급해 판매사가 가입할 수 있게 하세요.</p>
       </div>
 
-      {user.role === "super_admin" && shops.length > 1 && (
+      {(user.role === "super_admin" || user.role === "region_manager") && shops.length > 1 && (
         <Card className="border-border/80">
           <CardContent className="pt-6">
             <label className="text-sm font-medium">매장 선택</label>
@@ -107,7 +108,14 @@ export default function StaffPage() {
           <CardDescription>코드는 7일간 유효합니다. 판매사는 로그인 화면에서 초대 코드로 가입 탭에서 입력합니다.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          <Button onClick={handleCreateInvite} disabled={!selectedShopId}>새 초대 코드 발급</Button>
+          {shops.length === 0 && (
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+              소속 매장 정보가 없어 초대 코드를 발급할 수 없습니다. 로그인을 다시 하거나 관리자에게 문의하세요.
+            </p>
+          )}
+          <Button onClick={handleCreateInvite} disabled={!selectedShopId} title={!selectedShopId ? "매장을 선택하면 발급할 수 있습니다" : undefined}>
+            새 초대 코드 발급
+          </Button>
           {newInvite && (
             <div className="rounded-lg border border-border bg-muted/50 p-5">
               <p className="text-sm font-medium">발급된 코드 (매장: {newInvite.shopName})</p>

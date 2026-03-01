@@ -17,6 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuthStore } from "@/client/store/useAuthStore";
+import { cn } from "@/lib/utils";
 
 interface Notice {
   id: string;
@@ -25,6 +26,7 @@ interface Notice {
   author_id: string | null;
   pinned: boolean;
   created_at: string;
+  type?: "notice" | "post";
 }
 
 function formatDate(s: string) {
@@ -38,7 +40,10 @@ function formatDate(s: string) {
 
 export default function NoticesPage() {
   const user = useAuthStore((s) => s.user);
-  const isSuperAdmin = user?.role === "super_admin";
+  const role = user?.role;
+  const isSuperAdmin = role === "super_admin";
+  const canCreateNotice = role === "super_admin" || role === "region_manager" || role === "tenant_admin";
+  const canCreatePost = !!role; // 로그인한 모든 역할은 post 생성 가능
 
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(false);
@@ -48,6 +53,7 @@ export default function NoticesPage() {
   const [newTitle, setNewTitle] = useState("");
   const [newBody, setNewBody] = useState("");
   const [newPinned, setNewPinned] = useState(false);
+  const [newType, setNewType] = useState<"notice" | "post">("notice");
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -81,8 +87,18 @@ export default function NoticesPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !isSuperAdmin) {
+    if (!user) {
+      showToast("error", "로그인 후 이용해주세요.");
+      return;
+    }
+
+    const selectedType = newType;
+    if (selectedType === "notice" && !canCreateNotice) {
       showToast("error", "공지 작성 권한이 없습니다.");
+      return;
+    }
+    if (selectedType === "post" && !canCreatePost) {
+      showToast("error", "글 작성 권한이 없습니다.");
       return;
     }
     if (!newTitle.trim() || !newBody.trim()) {
@@ -96,13 +112,12 @@ export default function NoticesPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-user-role": user.role,
         },
         body: JSON.stringify({
           title: newTitle.trim(),
           body: newBody.trim(),
-          author_id: user.id,
           pinned: newPinned,
+          type: selectedType,
         }),
       });
       const json = await res.json();
@@ -116,6 +131,7 @@ export default function NoticesPage() {
       setNewTitle("");
       setNewBody("");
       setNewPinned(false);
+      setNewType("notice");
       setCreating(false);
       showToast("success", "공지가 등록되었습니다.");
     } catch (err) {
@@ -126,8 +142,9 @@ export default function NoticesPage() {
     }
   };
 
-  const pinned = notices.filter((n) => n.pinned);
-  const list = notices.filter((n) => !n.pinned);
+  const pinned = notices.filter((n) => (n.type ?? "notice") === "notice" && n.pinned);
+  const posts = notices.filter((n) => (n.type ?? "notice") === "post");
+  const others = notices.filter((n) => (n.type ?? "notice") === "notice" && !n.pinned);
 
   return (
     <div className="space-y-6">
@@ -139,7 +156,7 @@ export default function NoticesPage() {
           고객 및 대리점이 정책적으로 알아야 할 공지·알림 사항입니다.
         </p>
       </div>
-      {isSuperAdmin && (
+      {(canCreateNotice || canCreatePost) && (
         <div className="flex items-center gap-2">
           <Button
             type="button"
@@ -148,14 +165,14 @@ export default function NoticesPage() {
             className="flex items-center gap-2"
           >
             <span className="text-lg leading-none">+</span>
-            <span className="text-sm">공지 추가</span>
+            <span className="text-sm">{canCreateNotice ? "새 글" : "글 쓰기"}</span>
           </Button>
         </div>
       )}
 
       <Card className="border-border/80">
         <CardHeader>
-          <CardTitle>공지 목록</CardTitle>
+          <CardTitle>공지 / 글 목록</CardTitle>
           <CardDescription>
             중요 공지는 상단에 고정되어 있습니다. 제목을 클릭하면 상세 내용을 볼 수 있습니다.
           </CardDescription>
@@ -201,7 +218,7 @@ export default function NoticesPage() {
                   </div>
                 </li>
               ))}
-              {list.map((notice) => (
+              {others.map((notice) => (
                 <li key={notice.id} className="py-4 first:pt-0">
                   <div className="flex items-start justify-between gap-2">
                     <Link
@@ -228,20 +245,81 @@ export default function NoticesPage() {
                   </div>
                 </li>
               ))}
+              {posts.length > 0 && (
+                <li className="py-2 text-xs font-semibold text-muted-foreground">일반 글</li>
+              )}
+              {posts.map((notice) => (
+                <li key={notice.id} className="py-4 first:pt-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <Link
+                      href={`/dashboard/notices/${notice.id}`}
+                      className="group -m-2 flex-1 rounded-lg p-2 transition-colors hover:bg-muted/50"
+                    >
+                      <span className="text-xs rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
+                        일반 글
+                      </span>
+                      <span className="ml-2 text-sm text-muted-foreground">
+                        {formatDate(notice.created_at)}
+                      </span>
+                      <h3 className="mt-1 font-medium text-foreground group-hover:text-primary">
+                        {notice.title}
+                      </h3>
+                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                        {notice.body?.slice(0, 80) ?? ""}
+                      </p>
+                    </Link>
+                    {/* 수정 버튼은 세부 권한에 따라 상세 페이지 컴포넌트에서 처리 */}
+                  </div>
+                </li>
+              ))}
             </ul>
           )}
         </CardContent>
       </Card>
 
-      {/* 슈퍼 어드민 전용 공지 작성 폼 */}
-      {isSuperAdmin && creating && (
+      {/* 공지/글 작성 폼 */}
+      {creating && (
         <Card className="border-border/80">
           <CardHeader>
-            <CardTitle>새 공지 작성</CardTitle>
-            <CardDescription>시스템 전체에 표시할 공지를 입력합니다.</CardDescription>
+            <CardTitle>{canCreateNotice ? "새 공지 / 글 작성" : "글 작성"}</CardTitle>
+            <CardDescription>시스템 전체 또는 내부 공지를 입력합니다.</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleCreate} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">유형</label>
+                <div className="flex flex-wrap gap-2 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => canCreateNotice && setNewType("notice")}
+                    disabled={!canCreateNotice}
+                    className={cn(
+                      "rounded-md border px-2 py-1",
+                      newType === "notice" && canCreateNotice
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground",
+                      !canCreateNotice && "cursor-not-allowed opacity-50"
+                    )}
+                  >
+                    공지
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewType("post")}
+                    className={cn(
+                      "rounded-md border px-2 py-1",
+                      newType === "post"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground"
+                    )}
+                  >
+                    일반 글
+                  </button>
+                </div>
+                {!canCreateNotice && (
+                  <p className="text-xs text-muted-foreground">판매사는 공지 대신 일반 글만 작성할 수 있습니다.</p>
+                )}
+              </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">제목</label>
                 <Input
