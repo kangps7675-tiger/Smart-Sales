@@ -3,6 +3,8 @@ import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '@/server/supabase';
 import { getAuthContext } from '@/server/auth';
 
+export const dynamic = "force-dynamic";
+
 const SALT_ROUNDS = 10;
 
 export async function PATCH(req: NextRequest) {

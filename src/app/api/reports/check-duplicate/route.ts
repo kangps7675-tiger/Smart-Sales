@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/server/supabase';
 import { assertShopInStoreGroup, getAuthContext } from '@/server/auth';
 
+export const dynamic = "force-dynamic";
+
 /**
  * 판매일보 업로드 중복 체크 API
  *

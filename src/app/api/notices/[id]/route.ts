@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/server/supabase';
 import { getAuthContext } from '@/server/auth';
 
+export const dynamic = "force-dynamic";
+
 type RouteContext = { params: Promise<{ id: string }> };
 
 // GET /api/notices/[id] - 단건 조회

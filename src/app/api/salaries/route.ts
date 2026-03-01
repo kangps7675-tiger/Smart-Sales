@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/server/supabase";
 import { assertShopInStoreGroup, getAuthContext } from "@/server/auth";
 
+export const dynamic = "force-dynamic";
+
 /** GET /api/salaries?shop_id=...&sales_person=...&period_start=...&period_end=...
  *  급여 이력 조회. tenant_admin/super_admin/region_manager: shop_id 필수. staff: 본인 shop_id, sales_person=본인 이름만.
  *  region_manager일 때: x-store-group-id 헤더 필수, shop_id가 해당 지점 소속인지 검증.

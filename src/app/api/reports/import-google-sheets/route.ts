@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { parseTabularRowsToReportEntries } from "@/lib/report-entry-map";
 import { assertShopInStoreGroup, getAuthContext } from "@/server/auth";
 
+export const dynamic = "force-dynamic";
+
 function parseGoogleSheetsExportUrl(inputUrl: string): { exportUrl: string; sheetId: string; gid?: string } | null {
   const trimmed = String(inputUrl ?? "").trim();
   if (!trimmed) return null;
