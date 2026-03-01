@@ -20,8 +20,12 @@ import { Suspense, useState, useEffect } from "react";
 import Link from "next/link";
 import { Cormorant_Garamond } from "next/font/google";
 import { useRouter, useSearchParams } from "next/navigation";
+import { startNavigation, cancelNavigation } from "@/components/navigation-loading";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuthStore } from "@/client/store/useAuthStore";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -38,7 +42,7 @@ const logoFont = Cormorant_Garamond({
  * 
  * 직원용: 매장주·판매사만 가입/로그인 (고객 가입·소셜 로그인 없음).
  */
-const TAB_IDS = ["login", "tenant_signup", "invite_signup"] as const;
+const TAB_IDS = ["login", "tenant_signup", "invite_signup", "reset_password"] as const;
 type Tab = (typeof TAB_IDS)[number];
 
 function LoginPageInner() {
@@ -49,17 +53,33 @@ function LoginPageInner() {
   const signUpWithInvite = useAuthStore((s) => s.signUpWithInvite);
 
   const tabFromUrl = searchParams.get("tab") as Tab | null;
-  const [tab, setTab] = useState<Tab>(tabFromUrl && TAB_IDS.includes(tabFromUrl) ? tabFromUrl : "login");
+  const tokenFromUrl = searchParams.get("token") ?? "";
+  const [tab, setTab] = useState<Tab>("login");
 
   useEffect(() => {
+    if (tabFromUrl === "reset_password" && tokenFromUrl) {
+      setTab("reset_password");
+      return;
+    }
     if (tabFromUrl && TAB_IDS.includes(tabFromUrl)) {
       setTab(tabFromUrl);
     }
-  }, [tabFromUrl]);
+  }, [tabFromUrl, tokenFromUrl]);
 
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [autoLogin, setAutoLogin] = useState(true);
+
+  const [showForgotForm, setShowForgotForm] = useState(false);
+  const [forgotLoginId, setForgotLoginId] = useState("");
+  const [forgotMessage, setForgotMessage] = useState<{ type: "link" | "error"; text: string } | null>(null);
+  const [forgotLoading, setForgotLoading] = useState(false);
+
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
+  const [resetError, setResetError] = useState("");
+  const [resetSuccess, setResetSuccess] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   const [shopName, setShopName] = useState("");
   const [signName, setSignName] = useState("");
@@ -100,11 +120,13 @@ function LoginPageInner() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginId.trim()) return;
+    startNavigation();
     const result = await login(loginId.trim(), password, autoLogin);
     if (result.success) {
       router.push("/dashboard");
-    } else if (result.error) {
-      alert(result.error);
+    } else {
+      cancelNavigation();
+      if (result.error) alert(result.error);
     }
   };
 
@@ -132,13 +154,78 @@ function LoginPageInner() {
         name: signName.trim(),
         email: signEmail.trim(),
         loginId: signLoginId.trim(),
+        storeGroupId: null,
       },
       signPassword
     );
     if (result.success) {
+      startNavigation();
       router.push("/dashboard");
     } else if (result.error) {
       alert(result.error);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const id = forgotLoginId.trim();
+    if (!id) return;
+    setForgotMessage(null);
+    setForgotLoading(true);
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login_id: id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setForgotMessage({ type: "error", text: data?.error ?? "재설정 링크 생성에 실패했습니다." });
+        return;
+      }
+      const link = data.reset_link ?? "";
+      const fullLink = link.startsWith("http") ? link : `${typeof window !== "undefined" ? window.location.origin : ""}${link}`;
+      setForgotMessage({
+        type: "link",
+        text: fullLink,
+      });
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const token = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("token") ?? tokenFromUrl : tokenFromUrl;
+    if (!token) {
+      setResetError("재설정 링크가 올바르지 않습니다.");
+      return;
+    }
+    if (resetPassword !== resetPasswordConfirm) {
+      setResetError("비밀번호가 일치하지 않습니다.");
+      return;
+    }
+    const pwdCheck = validatePassword(resetPassword);
+    if (!pwdCheck.valid) {
+      setResetError(pwdCheck.message ?? "비밀번호 규칙을 확인하세요.");
+      return;
+    }
+    setResetError("");
+    setResetLoading(true);
+    try {
+      const res = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, new_password: resetPassword }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setResetError(data?.error ?? "비밀번호 변경에 실패했습니다.");
+        return;
+      }
+      setResetSuccess(true);
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -160,17 +247,20 @@ function LoginPageInner() {
         name: inviteSignName.trim(),
         email: inviteSignEmail.trim(),
         loginId: inviteSignLoginId.trim(),
+        storeGroupId: null,
       },
       inviteSignPassword
     );
-    if (result.success) router.push("/dashboard");
-    else setInviteError(result.error ?? "가입에 실패했습니다.");
+    if (result.success) {
+      startNavigation();
+      router.push("/dashboard");
+    } else setInviteError(result.error ?? "가입에 실패했습니다.");
   };
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: "login", label: "로그인" },
-    { id: "tenant_signup", label: "매장주 가입" },
-    { id: "invite_signup", label: "판매사 가입" },
+    { id: "login" as const, label: "로그인" },
+    { id: "tenant_signup" as const, label: "매장주 가입" },
+    { id: "invite_signup" as const, label: "판매사 가입" },
   ];
 
   return (
@@ -204,18 +294,22 @@ function LoginPageInner() {
               ))}
             </div>
             <CardTitle className="text-xl">
-              {tab === "login" && "로그인"}
+              {tab === "login" && !showForgotForm && "로그인"}
+              {tab === "login" && showForgotForm && "비밀번호 찾기"}
               {tab === "tenant_signup" && "매장주 가입"}
               {tab === "invite_signup" && "판매사 가입 (초대 코드)"}
+              {tab === "reset_password" && "비밀번호 재설정"}
             </CardTitle>
             <CardDescription>
-              {tab === "login" && "아이디와 비밀번호를 입력하세요."}
+              {tab === "login" && !showForgotForm && "매장주·지점장·판매사 모두 이 화면에서 로그인합니다. 매장주 또는 지점장이 먼저 로그인해야 판매사 로그인이 가능합니다."}
+              {tab === "login" && showForgotForm && "가입 시 사용한 아이디로 재설정 링크를 받을 수 있습니다."}
               {tab === "tenant_signup" && "매장을 등록하고 사장님 계정을 만드세요. 가입 후 판매사를 초대할 수 있습니다."}
               {tab === "invite_signup" && "매장주가 발급한 초대 코드를 입력한 뒤, 판매사 계정을 만드세요."}
+              {tab === "reset_password" && "새 비밀번호를 입력하세요."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {tab === "login" && (
+            {tab === "login" && !showForgotForm && (
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
                   <label htmlFor="loginId" className="text-sm font-medium text-foreground">아이디</label>
@@ -223,14 +317,82 @@ function LoginPageInner() {
                 </div>
                 <div className="space-y-2">
                   <label htmlFor="password" className="text-sm font-medium text-foreground">비밀번호</label>
-                  <Input id="password" type="password" placeholder="비밀번호" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" className="w-full" />
+                  <PasswordInput id="password" placeholder="비밀번호" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" className="w-full" />
                 </div>
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
-                  <input type="checkbox" checked={autoLogin} onChange={(e) => setAutoLogin(e.target.checked)} className="h-4 w-4 rounded border-input" />
-                  자동로그인
-                </label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <Checkbox
+                      id="autoLogin"
+                      checked={autoLogin}
+                      onChange={(e) => setAutoLogin(e.target.checked)}
+                    />
+                    <Label htmlFor="autoLogin" className="text-sm font-normal text-muted-foreground cursor-pointer">
+                      자동로그인
+                    </Label>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => { setShowForgotForm(true); setForgotMessage(null); setForgotLoginId(""); }}
+                    className="text-sm text-muted-foreground underline hover:text-foreground"
+                  >
+                    비밀번호 찾기
+                  </button>
+                </div>
                 <Button type="submit" className="w-full" size="lg">로그인</Button>
               </form>
+            )}
+
+            {tab === "login" && showForgotForm && (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">가입 시 사용한 아이디를 입력하시면 재설정 링크를 생성합니다.</p>
+                <form onSubmit={handleForgotPassword} className="space-y-3">
+                  <div className="space-y-2">
+                    <label htmlFor="forgotLoginId" className="text-sm font-medium text-foreground">아이디</label>
+                    <Input id="forgotLoginId" type="text" placeholder="아이디" value={forgotLoginId} onChange={(e) => setForgotLoginId(e.target.value)} autoComplete="username" className="w-full" />
+                  </div>
+                  {forgotMessage?.type === "error" && <p className="text-sm text-destructive">{forgotMessage.text}</p>}
+                  {forgotMessage?.type === "link" && (
+                    <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-sm">
+                      <p className="mb-2 font-medium text-foreground">아래 링크를 복사해 브라우저에서 열어 새 비밀번호를 설정하세요. (1시간 유효)</p>
+                      <input type="text" readOnly value={forgotMessage.text} className="w-full rounded border border-input bg-background px-2 py-1.5 text-xs font-mono" />
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <Button type="submit" disabled={forgotLoading || !forgotLoginId.trim()} className="flex-1">
+                      {forgotLoading ? "처리 중…" : "재설정 링크 받기"}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={() => { setShowForgotForm(false); setForgotMessage(null); }}>취소</Button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {tab === "reset_password" && (
+              <div className="space-y-4">
+                {resetSuccess ? (
+                  <>
+                    <p className="text-sm text-foreground">비밀번호가 변경되었습니다. 새 비밀번호로 로그인하세요.</p>
+                    <Button type="button" className="w-full" size="lg" onClick={() => { setTab("login"); setResetSuccess(false); }}>로그인하기</Button>
+                  </>
+                ) : (
+                  <form onSubmit={handleResetPassword} className="space-y-4">
+                    <p className="text-sm text-muted-foreground">새 비밀번호를 입력하세요.</p>
+                    <div className="space-y-2">
+                      <label htmlFor="resetPassword" className="text-sm font-medium text-foreground">새 비밀번호</label>
+                      <PasswordInput id="resetPassword" placeholder="비밀번호 (8자 이상, 특수문자 포함)" value={resetPassword} onChange={(e) => setResetPassword(e.target.value)} autoComplete="new-password" className="w-full" />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor="resetPasswordConfirm" className="text-sm font-medium text-foreground">비밀번호 확인</label>
+                      <PasswordInput id="resetPasswordConfirm" placeholder="비밀번호 다시 입력" value={resetPasswordConfirm} onChange={(e) => setResetPasswordConfirm(e.target.value)} autoComplete="new-password" className="w-full" />
+                    </div>
+                    {resetError && <p className="text-sm text-destructive">{resetError}</p>}
+                    <Button type="submit" className="w-full" size="lg" disabled={resetLoading}>
+                      {resetLoading ? "처리 중…" : "비밀번호 변경"}
+                    </Button>
+                    <Button type="button" variant="ghost" className="w-full" onClick={() => { startNavigation(); router.push("/login"); }}>로그인으로 돌아가기</Button>
+                  </form>
+                )}
+              </div>
             )}
 
             {tab === "tenant_signup" && (
@@ -253,12 +415,12 @@ function LoginPageInner() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground">비밀번호</label>
-                  <Input type="password" placeholder="비밀번호 (8자 이상, 특수문자 포함)" value={signPassword} onChange={(e) => setSignPassword(e.target.value)} autoComplete="new-password" />
+                  <PasswordInput placeholder="비밀번호 (8자 이상, 특수문자 포함)" value={signPassword} onChange={(e) => setSignPassword(e.target.value)} autoComplete="new-password" />
                   <p className="text-xs text-muted-foreground">8자 이상, 특수문자 1자 이상 포함</p>
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground">비밀번호 확인</label>
-                  <Input type="password" placeholder="비밀번호 다시 입력" value={signPasswordConfirm} onChange={(e) => setSignPasswordConfirm(e.target.value)} autoComplete="new-password" />
+                  <PasswordInput placeholder="비밀번호 다시 입력" value={signPasswordConfirm} onChange={(e) => setSignPasswordConfirm(e.target.value)} autoComplete="new-password" />
                 </div>
                 <Button type="submit" className="w-full" size="lg">매장주로 가입</Button>
               </form>
@@ -300,12 +462,12 @@ function LoginPageInner() {
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-foreground">비밀번호</label>
-                      <Input type="password" placeholder="비밀번호 (8자 이상, 특수문자 포함)" value={inviteSignPassword} onChange={(e) => setInviteSignPassword(e.target.value)} autoComplete="new-password" />
+                      <PasswordInput placeholder="비밀번호 (8자 이상, 특수문자 포함)" value={inviteSignPassword} onChange={(e) => setInviteSignPassword(e.target.value)} autoComplete="new-password" />
                       <p className="text-xs text-muted-foreground">8자 이상, 특수문자 1자 이상 포함</p>
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-foreground">비밀번호 확인</label>
-                      <Input type="password" placeholder="비밀번호 다시 입력" value={inviteSignPasswordConfirm} onChange={(e) => setInviteSignPasswordConfirm(e.target.value)} autoComplete="new-password" />
+                      <PasswordInput placeholder="비밀번호 다시 입력" value={inviteSignPasswordConfirm} onChange={(e) => setInviteSignPasswordConfirm(e.target.value)} autoComplete="new-password" />
                     </div>
                     {inviteError && <p className="text-sm text-destructive">{inviteError}</p>}
                     <Button type="submit" className="w-full" size="lg">판매사로 가입</Button>
@@ -317,6 +479,8 @@ function LoginPageInner() {
         </Card>
         <p className="mt-6 text-center text-sm text-muted-foreground">
           <Link href="/" className="underline hover:text-foreground">홈으로 돌아가기</Link>
+          {" · "}
+          <Link href="/signup-region-manager" className="underline hover:text-foreground">지점장 가입</Link>
           {" · "}
           <Link href="/signup-super-admin" className="underline hover:text-foreground">슈퍼 어드민 가입</Link>
         </p>
@@ -336,14 +500,16 @@ function LoginPageInner() {
  */
 export default function LoginPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
-          페이지를 불러오는 중입니다...
-        </div>
-      }
-    >
-      <LoginPageInner />
-    </Suspense>
+    <div suppressHydrationWarning>
+      <Suspense
+        fallback={
+          <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
+            페이지를 불러오는 중입니다...
+          </div>
+        }
+      >
+        <LoginPageInner />
+      </Suspense>
+    </div>
   );
 }

@@ -134,3 +134,12 @@ body {
 .animate-typing-cursor {
   animation: typing-cursor 0.9s step-end infinite;
 }
+
+@keyframes navigation-loading {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(200%); }
+  100% { transform: translateX(-100%); }
+}
+.animate-navigation-loading {
+  animation: navigation-loading 1.2s ease-in-out infinite;
+}

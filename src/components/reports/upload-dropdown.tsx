@@ -145,28 +145,67 @@ export function UploadDropdown({ shopId, noShopMessage }: UploadDropdownProps) {
    * Phase 2에서 실제 Google Sheets API 연동 구현 예정
    * 현재는 UI만 제공합니다.
    */
-  const handleLoadGoogleSheets = () => {
+  const handleLoadGoogleSheets = async () => {
+    if (!shopId) {
+      setMessage({ type: "error", text: noShopMessage || "매장을 선택해주세요." });
+      return;
+    }
     if (!googleSheetsUrl.trim()) {
-      alert("Google Sheets URL을 입력해주세요.");
+      setMessage({ type: "error", text: "Google Sheets URL을 입력해주세요." });
       return;
     }
 
-    // Google Sheets URL에서 시트 ID 추출
-    const sheetIdMatch = googleSheetsUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-    if (!sheetIdMatch) {
-      alert("유효한 Google Sheets URL이 아닙니다.\n예: https://docs.google.com/spreadsheets/d/SHEET_ID/edit");
-      return;
-    }
+    setLoading(true);
+    setMessage(null);
+    setOpen(false);
 
-    const sheetId = sheetIdMatch[1];
-    
-    // Phase 2: 실제 Google Sheets API 연동 구현 예정
-    alert(`Google Sheets 연동 기능은 준비 중입니다.\n시트 ID: ${sheetId}\n\n현재는 파일 업로드를 사용해주세요.`);
-    
-    // TODO: Phase 2에서 구현
-    // 1. Google Sheets API 호출
-    // 2. 데이터 파싱
-    // 3. useReportsStore에 저장
+    try {
+      const res = await fetch("/api/reports/import-google-sheets", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop_id: shopId,
+          url: googleSheetsUrl.trim(),
+        }),
+      });
+
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        setMessage({ type: "error", text: json?.error ?? "Google Sheets 불러오기에 실패했습니다." });
+        return;
+      }
+
+      const entries = Array.isArray(json?.entries) ? json.entries : [];
+      const errors = Array.isArray(json?.errors) ? json.errors : [];
+
+      if (entries.length > 0) {
+        useReportsStore.getState().addEntries(entries);
+        setMessage({
+          type: "success",
+          text: `${entries.length}건의 고객 데이터를 불러왔습니다. 대시보드에 반영됩니다.`,
+        });
+      }
+
+      if (errors.length > 0) {
+        setMessage((prev) => ({
+          type: prev?.type ?? "error",
+          text: [prev?.text, ...errors].filter(Boolean).join(" "),
+        }));
+      }
+
+      if (entries.length === 0 && errors.length === 0) {
+        setMessage({ type: "error", text: "추출된 데이터가 없습니다. 첫 행에 헤더가 있는지 확인해 주세요." });
+      }
+
+      setShowGoogleSheetsInput(false);
+      setGoogleSheetsUrl("");
+    } catch {
+      setMessage({ type: "error", text: "Google Sheets 처리 중 오류가 발생했습니다." });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -339,7 +378,7 @@ export function UploadDropdown({ shopId, noShopMessage }: UploadDropdownProps) {
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    공개된 Google Sheets의 URL을 입력하세요. (준비 중)
+                    공개된 Google Sheets URL을 입력하세요. (링크가 있는 모든 사용자에게 공개)
                   </p>
                 </div>
               )}

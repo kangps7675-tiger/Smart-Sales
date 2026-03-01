@@ -72,10 +72,13 @@ export default function ReportsPage() {
   const [salaryHistoryLoading, setSalaryHistoryLoading] = useState(false);
   const [saveSalaryLoading, setSaveSalaryLoading] = useState(false);
   const [salaryToast, setSalaryToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [salaryCalcOptions, setSalaryCalcOptions] = useState<{ perSaleIncentive?: number; marginPercent?: number }>({});
 
   // 개별 매장(지점): 해당 매장만 표시. 슈퍼 어드민만 매장 선택 가능.
   const isSuperAdmin = user?.role === "super_admin";
+  const isRegionManager = user?.role === "region_manager";
   const isBranchUser = user?.role === "tenant_admin" || user?.role === "staff";
+  const canSelectShop = isSuperAdmin || isRegionManager;
   const shopId = isBranchUser
     ? userShopId
     : (selectedShopId || userShopId || (shops.length > 0 ? shops[0]?.id : ""));
@@ -91,10 +94,30 @@ export default function ReportsPage() {
    */
   useEffect(() => {
     if (!user) return;
-    // super_admin이 아니고 shopId가 없으면 조회하지 않음
-    if (user.role !== "super_admin" && !shopId) return;
-    loadEntries(shopId || null, user.role);
+    if (!shopId) return;
+    loadEntries(shopId, user.role);
   }, [user, shopId, loadEntries]);
+
+  /** 급여 계산에 매장 설정(건당 인센티브·마진률) 반영 */
+  useEffect(() => {
+    if (!shopId || !user || !(user.role === "tenant_admin" || user.role === "super_admin" || user.role === "region_manager")) return;
+    const headers: Record<string, string> = { "x-user-role": user.role };
+    if (user.shopId) headers["x-user-shop-id"] = user.shopId;
+    if (user.storeGroupId) headers["x-store-group-id"] = user.storeGroupId;
+    fetch(`/api/shop-settings?shop_id=${encodeURIComponent(shopId)}`, { headers })
+      .then((r) => r.json().catch(() => ({})))
+      .then((json) => {
+        if (json?.shop_id) {
+          setSalaryCalcOptions({
+            perSaleIncentive: Number(json.per_sale_incentive) || undefined,
+            marginPercent: Number(json.margin_rate_pct) != null && !Number.isNaN(Number(json.margin_rate_pct))
+              ? Number(json.margin_rate_pct) / 100
+              : undefined,
+          });
+        }
+      })
+      .catch(() => setSalaryCalcOptions({}));
+  }, [shopId, user]);
   
   /**
    * 고객별 거래 그룹화 인터페이스
@@ -223,12 +246,12 @@ export default function ReportsPage() {
   }, [entriesRaw, shopId]);
 
   /** 매장주·슈퍼어드민만: 판매일보 기반 판매사별 급여 계산 (건당 3만원 기준) */
-  const canShowSalary = user?.role === "tenant_admin" || user?.role === "super_admin";
+  const canShowSalary = user?.role === "tenant_admin" || user?.role === "super_admin" || user?.role === "region_manager";
   const salesPersonSalaryRows = useMemo(() => {
     if (!shopId || !canShowSalary) return [];
     const list = entriesRaw.filter((e) => e.shopId === shopId);
-    return getSalesPersonSalaryRows(list);
-  }, [entriesRaw, shopId, canShowSalary]);
+    return getSalesPersonSalaryRows(list, salaryCalcOptions);
+  }, [entriesRaw, shopId, canShowSalary, salaryCalcOptions]);
 
   /** 판매사(staff) 전용: 로그인한 본인 이름과 일치하는 판매 건만 집계한 "나의 실적" */
   const isStaff = user?.role === "staff";
@@ -238,9 +261,9 @@ export default function ReportsPage() {
     const list = entriesRaw.filter(
       (e) => e.shopId === shopId && (e.salesPerson ?? "").trim() === myName
     );
-    const rows = getSalesPersonSalaryRows(list);
+    const rows = getSalesPersonSalaryRows(list, salaryCalcOptions);
     return rows.length > 0 ? rows[0] : null;
-  }, [entriesRaw, shopId, isStaff, user?.name]);
+  }, [entriesRaw, shopId, isStaff, user?.name, salaryCalcOptions]);
 
   /**
    * 슈퍼 어드민이거나 매장이 여러 개면 첫 번째 매장을 자동 선택
@@ -249,19 +272,21 @@ export default function ReportsPage() {
    * 슈퍼 어드민은 매장이 없어도 업로드 가능하므로, 매장이 있으면 첫 번째 매장을 선택합니다.
    */
   useEffect(() => {
-    if ((isSuperAdmin || shops.length > 1) && !selectedShopId && shops.length > 0) {
+    if (canSelectShop && shops.length > 0 && !selectedShopId) {
       setSelectedShopId(shops[0].id);
     }
-  }, [isSuperAdmin, shops, selectedShopId]);
+  }, [canSelectShop, shops, selectedShopId]);
 
-  /** 급여 이력 조회 (매장주/슈퍼어드민: 전체, 판매사: 본인만) */
+  /** 급여 이력 조회 (매장주/슈퍼어드민/지점장: 전체, 판매사: 본인만) */
   const loadSalaryHistory = useCallback(async () => {
     if (!shopId) return;
     setSalaryHistoryLoading(true);
     try {
       const params = new URLSearchParams({ shop_id: shopId, role: user?.role ?? "" });
       if (user?.role === "staff" && user?.name?.trim()) params.set("sales_person", user.name.trim());
-      const res = await fetch(`/api/salaries?${params}`);
+      const headers: Record<string, string> = {};
+      if (user?.role === "region_manager" && user?.storeGroupId) headers["x-store-group-id"] = user.storeGroupId;
+      const res = await fetch(`/api/salaries?${params}`, { headers });
       const json = await res.json().catch(() => []);
       setSalaryHistory(Array.isArray(json) ? (json as SalarySnapshot[]) : []);
     } catch {
@@ -269,11 +294,11 @@ export default function ReportsPage() {
     } finally {
       setSalaryHistoryLoading(false);
     }
-  }, [shopId, user?.role, user?.name]);
+  }, [shopId, user?.role, user?.name, user?.storeGroupId]);
 
   useEffect(() => {
     if (!shopId || !user) return;
-    if (user.role === "tenant_admin" || user.role === "super_admin" || user.role === "staff") {
+    if (user.role === "tenant_admin" || user.role === "super_admin" || user.role === "region_manager" || user.role === "staff") {
       loadSalaryHistory();
     }
   }, [shopId, user, loadSalaryHistory]);
@@ -290,12 +315,14 @@ export default function ReportsPage() {
     setSaveSalaryLoading(true);
     setSalaryToast(null);
     try {
+      const reqHeaders: Record<string, string> = {
+        "Content-Type": "application/json",
+        "x-user-role": user.role,
+      };
+      if (user.role === "region_manager" && user.storeGroupId) reqHeaders["x-store-group-id"] = user.storeGroupId;
       const res = await fetch("/api/salaries", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-user-role": user.role,
-        },
+        headers: reqHeaders,
         body: JSON.stringify({
           shop_id: shopId,
           period_start: periodStart,
@@ -324,6 +351,65 @@ export default function ReportsPage() {
     }
   }, [user, shopId, canShowSalary, salesPersonSalaryRows, loadSalaryHistory]);
 
+  const handleExportCsv = useCallback(() => {
+    if (!shopId) return;
+
+    const escapeCell = (value: unknown) => {
+      const s = String(value ?? "");
+      if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, "\"\"")}"`;
+      return s;
+    };
+
+    const headers = [
+      "판매일",
+      "판매사",
+      "고객명",
+      "연락처",
+      "생년월일",
+      "주소",
+      "유입경로",
+      "기존통신사",
+      "개통단말기",
+      "요금제",
+      "금액",
+      "지원금",
+      "마진",
+    ];
+
+    const rows = entriesRaw
+      .filter((e) => e.shopId === shopId)
+      .map((e) => [
+        e.saleDate ?? "",
+        e.salesPerson ?? "",
+        e.name ?? "",
+        e.phone ?? "",
+        e.birthDate ?? "",
+        e.address ?? "",
+        e.path ?? "",
+        e.existingCarrier ?? "",
+        e.productName ?? "",
+        e.planName ?? "",
+        e.amount ?? 0,
+        e.supportAmount ?? 0,
+        e.margin ?? 0,
+      ]);
+
+    const csv = `\uFEFF${[headers, ...rows]
+      .map((r) => r.map(escapeCell).join(","))
+      .join("\n")}`;
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const dateTag = new Date().toISOString().slice(0, 10);
+    a.download = `reports_${shopId}_${dateTag}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [entriesRaw, shopId]);
+
   return (
     <div className="space-y-8">
       <div className="flex items-start justify-between gap-4">
@@ -337,11 +423,16 @@ export default function ReportsPage() {
               한 건 추가
             </Button>
           )}
+          {!!user && !!shopId && entriesRaw.some((e) => e.shopId === shopId) && (
+            <Button type="button" variant="outline" size="sm" onClick={handleExportCsv}>
+              CSV 내보내기
+            </Button>
+          )}
           {canUpload && (
           <UploadDropdown
-            shopId={shopId || (isSuperAdmin && shops.length > 0 ? shops[0]?.id : null)}
+            shopId={shopId || (canSelectShop && shops.length > 0 ? shops[0]?.id : null)}
             noShopMessage={
-              isSuperAdmin
+              canSelectShop
                 ? "매장을 선택하거나 먼저 매장을 등록해주세요."
                 : "매장에 소속된 계정으로 로그인하거나 매장을 등록하면 업로드할 수 있습니다."
             }
@@ -361,12 +452,12 @@ export default function ReportsPage() {
         <CardContent className="space-y-4">
           {!canUpload ? (
             <p className="text-sm text-muted-foreground">판매일보 업로드는 매장주 또는 판매사 계정만 가능합니다. 일반 고객은 조회만 가능합니다.</p>
-          ) : !isSuperAdmin && shops.length === 0 && !userShopId ? (
+          ) : !canSelectShop && shops.length === 0 && !userShopId ? (
             <p className="text-sm text-muted-foreground">매장에 소속된 계정으로 로그인하거나 매장을 등록하면 업로드할 수 있습니다.</p>
           ) : (
             <>
-              {/* 슈퍼 어드민만 매장 선택 가능. 개별 매장(지점)은 자기 매장만 보임 */}
-              {isSuperAdmin && shops.length > 0 && (
+              {/* 슈퍼 어드민/지점장: 매장 선택. 개별 매장(매장주/판매사)은 자기 매장만 보임 */}
+              {canSelectShop && shops.length > 0 && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground">매장 선택</label>
                   <select
@@ -382,8 +473,8 @@ export default function ReportsPage() {
                   </select>
                 </div>
               )}
-              {/* 슈퍼 어드민이 매장이 없으면 안내 메시지, 있으면 업로드 가능 */}
-              {isSuperAdmin && shops.length === 0 ? (
+              {/* 슈퍼 어드민/지점장이 매장이 없으면 안내 메시지, 있으면 업로드 가능 */}
+              {canSelectShop && shops.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   매장이 등록되지 않았습니다. 시스템 관리 페이지에서 매장을 등록한 후 업로드할 수 있습니다.
                   <br />
@@ -524,15 +615,34 @@ export default function ReportsPage() {
 
       {(canShowSalary || isStaff) && shopId && (
         <Card className="border-border/50">
-          <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
-            <div>
+          <CardHeader className="flex flex-row items-center justify-between gap-6 space-y-0 pb-5">
+            <div className="space-y-3">
               <CardTitle>급여 이력</CardTitle>
-              <CardDescription>
+              <CardDescription className="mt-0">
                 DB에 저장된 급여 스냅샷입니다. 매장주·본사는 전체, 판매사는 본인만 표시됩니다.
               </CardDescription>
             </div>
-            <Button type="button" variant="ghost" size="sm" onClick={loadSalaryHistory} disabled={salaryHistoryLoading}>
-              {salaryHistoryLoading ? "불러오는 중..." : "새로고침"}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={loadSalaryHistory}
+              disabled={salaryHistoryLoading}
+              className="shrink-0 gap-2"
+            >
+              {salaryHistoryLoading ? (
+                "불러오는 중..."
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                    <path d="M3 3v5h5" />
+                    <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                    <path d="M16 21h5v-5" />
+                  </svg>
+                  새로고침
+                </>
+              )}
             </Button>
           </CardHeader>
           <CardContent>
@@ -592,10 +702,10 @@ export default function ReportsPage() {
       )}
 
       <Card className="border-border/50">
-        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
-          <div className="min-w-0 flex-1">
+        <CardHeader className="flex flex-row items-center justify-between gap-6 space-y-0 pb-5">
+          <div className="min-w-0 flex-1 space-y-3">
             <CardTitle>추출된 고객 목록</CardTitle>
-            <CardDescription>
+            <CardDescription className="mt-0">
               판매사·고객명·연락처·개통단말기·통신사·요금제·거래 후 최종 마진을 표시합니다. 대시보드 오늘 개통/예상 마진에 반영됩니다.
               {isBranchUser && " (개별 매장은 본인 매장 데이터만 조회됩니다.)"}
             </CardDescription>
@@ -619,19 +729,12 @@ export default function ReportsPage() {
             <div className="space-y-5">
               <div className="flex items-center gap-3">
                 <div className="relative max-w-sm flex-1">
-                  <svg
-                    className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                    />
-                  </svg>
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="11" cy="11" r="8" />
+                      <path d="m21 21-4.3-4.3" />
+                    </svg>
+                  </span>
                   <Input
                     type="text"
                     placeholder="고객명, 연락처, 상품명, 판매일, 주소로 검색..."

@@ -15,13 +15,21 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/client/store/useAuthStore";
 import { ExcelUpload } from "@/components/reports/excel-upload";
+
+interface ShopRow {
+  id: string;
+  name: string;
+  createdAt: string;
+  storeGroupId: string | null;
+  subscriptionStatus?: string;
+}
 
 /**
  * 시스템 관리 페이지 컴포넌트
@@ -37,6 +45,28 @@ export default function AdminPage() {
   const getShopsForCurrentUser = useAuthStore((s) => s.getShopsForCurrentUser);
   const shops = getShopsForCurrentUser();
   const [selectedShopId, setSelectedShopId] = useState<string>("");
+  const [allShops, setAllShops] = useState<ShopRow[]>([]);
+  const [shopsLoading, setShopsLoading] = useState(false);
+
+  const loadAllShops = useCallback(async () => {
+    if (!user || user.role !== "super_admin") return;
+    setShopsLoading(true);
+    try {
+      const res = await fetch("/api/shops", {
+        headers: { "x-user-role": user.role },
+      });
+      const json = await res.json().catch(() => []);
+      setAllShops(Array.isArray(json) ? json : []);
+    } catch {
+      setAllShops([]);
+    } finally {
+      setShopsLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    loadAllShops();
+  }, [loadAllShops]);
 
   /**
    * 접근 권한 체크 및 리다이렉트
@@ -121,14 +151,51 @@ export default function AdminPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <span className="text-lg">🏢</span>
-              매장별 구독·결제
+              매장 목록·구독 현황
             </CardTitle>
             <CardDescription>
-              전체 매장의 구독 상태, 결제 이력을 확인하고 관리합니다.
+              전체 매장의 구독 상태를 확인합니다.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button variant="outline" size="sm" disabled>매장 목록·구독 현황 (준비 중)</Button>
+            {shopsLoading ? (
+              <p className="text-sm text-muted-foreground">불러오는 중...</p>
+            ) : allShops.length === 0 ? (
+              <p className="text-sm text-muted-foreground">등록된 매장이 없습니다.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="py-2 text-left font-medium">매장명</th>
+                      <th className="py-2 text-left font-medium">구독 상태</th>
+                      <th className="py-2 text-right font-medium">생성일</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allShops.map((s) => (
+                      <tr key={s.id} className="border-b border-border/50">
+                        <td className="py-2 font-medium">{s.name}</td>
+                        <td className="py-2">
+                          <span className={
+                            s.subscriptionStatus === "suspended" ? "text-destructive" :
+                            s.subscriptionStatus === "trial" ? "text-amber-600" : "text-muted-foreground"
+                          }>
+                            {s.subscriptionStatus === "trial" ? "체험" : s.subscriptionStatus === "suspended" ? "중지" : "활성"}
+                          </span>
+                        </td>
+                        <td className="py-2 text-right text-muted-foreground">
+                          {s.createdAt ? new Date(s.createdAt).toLocaleDateString("ko-KR") : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <Button variant="outline" size="sm" className="mt-3" onClick={loadAllShops} disabled={shopsLoading}>
+              새로고침
+            </Button>
           </CardContent>
         </Card>
         <Card className="border-border/80 shadow-sm">

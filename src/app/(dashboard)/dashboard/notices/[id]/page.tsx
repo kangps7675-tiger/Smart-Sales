@@ -17,7 +17,10 @@ import { notFound } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabaseAdmin } from "@/server/supabase";
+import { getAuthFromCookies } from "@/server/auth";
 import { NoticeEditLink } from "./notice-edit-link";
+import { NoticeComments } from "./notice-comments";
+import { MentionText } from "@/components/notices/mention-text";
 
 // 공지사항 상세는 Supabase notices 테이블에서 조회합니다.
 
@@ -50,7 +53,7 @@ export default async function NoticeDetailPage({
   const { id } = await params;
   const { data, error } = await supabaseAdmin
     .from("notices")
-    .select("id, title, body, created_at, pinned")
+    .select("id, title, body, created_at, pinned, author_id, type")
     .eq("id", id)
     .maybeSingle();
 
@@ -64,11 +67,20 @@ export default async function NoticeDetailPage({
     body: (data.body ?? "") as string,
     created_at: (data.created_at ?? "") as string,
     pinned: Boolean(data.pinned),
+    author_id: (data.author_id ?? null) as string | null,
+    type: (data.type ?? "notice") as string,
   };
 
   const createdAtLabel = notice.created_at
     ? formatDate(notice.created_at)
     : "";
+
+  const auth = await getAuthFromCookies();
+  const currentUserId = auth?.id ?? "";
+  const canDeleteAll =
+    auth?.role === "super_admin" ||
+    auth?.role === "region_manager" ||
+    auth?.role === "tenant_admin";
 
   return (
     <div className="space-y-6">
@@ -78,7 +90,7 @@ export default async function NoticeDetailPage({
             ← 목록
           </Button>
         </Link>
-        <NoticeEditLink noticeId={notice.id} />
+        <NoticeEditLink noticeId={notice.id} authorId={notice.author_id} type={notice.type} />
       </div>
 
       <Card className="border-border/80">
@@ -99,10 +111,18 @@ export default async function NoticeDetailPage({
         </CardHeader>
         <CardContent>
           <div className="whitespace-pre-wrap text-sm text-muted-foreground">
-            {notice.body}
+            <MentionText text={notice.body} />
           </div>
         </CardContent>
       </Card>
+
+      {currentUserId && (
+        <NoticeComments
+          noticeId={notice.id}
+          currentUserId={currentUserId}
+          canDeleteAll={!!canDeleteAll}
+        />
+      )}
     </div>
   );
 }

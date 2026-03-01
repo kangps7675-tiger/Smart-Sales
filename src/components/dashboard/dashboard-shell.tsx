@@ -13,11 +13,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Cormorant_Garamond } from "next/font/google";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuthStore, ROLE_LABEL } from "@/client/store/useAuthStore";
 import { getNavItemsForRole } from "@/lib/rbac";
+import { startNavigation } from "@/components/navigation-loading";
 import { cn } from "@/lib/utils";
 
 const logoFont = Cormorant_Garamond({
@@ -36,10 +37,24 @@ const logoFont = Cormorant_Garamond({
  * @param children - 대시보드 페이지 콘텐츠
  */
 export function DashboardShell({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const nav = getNavItemsForRole(user?.role);
+
+  const handleLogout = async (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // ignore
+    } finally {
+      logout();
+      startNavigation();
+      router.push("/login");
+    }
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-background sm:flex-row" suppressHydrationWarning>
@@ -82,7 +97,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <ThemeToggle />
           <Link
             href="/login"
-            onClick={() => logout()}
+            onClick={handleLogout}
             className="text-sm text-muted-foreground hover:text-foreground"
           >
             로그아웃

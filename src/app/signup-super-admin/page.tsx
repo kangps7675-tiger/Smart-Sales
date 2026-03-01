@@ -17,6 +17,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { startNavigation } from "@/components/navigation-loading";
 import { Cormorant_Garamond } from "next/font/google";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,10 +91,16 @@ export default function SignupSuperAdminPage() {
       return;
     }
     const result = await signUpAsSuperAdmin(
-      { name: name.trim(), email: email.trim(), loginId: loginId.trim() },
-      key.trim()
+      {
+        name: name.trim(),
+        email: email.trim(),
+        loginId: loginId.trim(),
+        storeGroupId: null,
+      },
+      key.trim(),
     );
     if (result.success) {
+      startNavigation();
       router.push("/dashboard");
     } else {
       setSubmitError(result.error ?? "가입에 실패했습니다. 가입 키를 다시 확인하세요.");

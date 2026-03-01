@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { startNavigation } from "@/components/navigation-loading";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,8 @@ interface Notice {
   body: string;
   pinned: boolean;
   created_at: string;
+  author_id?: string | null;
+  type?: "notice" | "post";
 }
 
 export default function NoticeEditPage() {
@@ -27,7 +30,8 @@ export default function NoticeEditPage() {
   const router = useRouter();
   const id = typeof params?.id === "string" ? params.id : "";
   const user = useAuthStore((s) => s.user);
-  const isSuperAdmin = user?.role === "super_admin";
+  const role = user?.role;
+  const isSuperAdmin = role === "super_admin";
 
   const [notice, setNotice] = useState<Notice | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,11 +55,6 @@ export default function NoticeEditPage() {
       setError("공지 ID가 없습니다.");
       return;
     }
-    if (!isSuperAdmin) {
-      setLoading(false);
-      setError("수정 권한이 없습니다.");
-      return;
-    }
 
     const fetchNotice = async () => {
       setLoading(true);
@@ -72,6 +71,26 @@ export default function NoticeEditPage() {
         setTitle(n.title ?? "");
         setBody(n.body ?? "");
         setPinned(Boolean(n.pinned));
+
+        const isNotice = (n.type ?? "notice") === "notice";
+        const isOwner = Boolean(n.author_id && user?.id && n.author_id === user.id);
+
+        // 페이지 진입 권한:
+        // - super_admin: 모두 가능
+        // - region_manager / tenant_admin: 자기 글만 (notice/post)
+        // - staff: 자기 글 + post만
+        let allowed = false;
+        if (role === "super_admin") {
+          allowed = true;
+        } else if (role === "region_manager" || role === "tenant_admin") {
+          allowed = isOwner;
+        } else if (role === "staff") {
+          allowed = isOwner && !isNotice;
+        }
+
+        if (!allowed) {
+          setError("수정 권한이 없습니다.");
+        }
       } catch (err) {
         console.error("[NoticeEdit] 조회 실패", err);
         setError("공지를 불러오지 못했습니다.");
@@ -84,7 +103,7 @@ export default function NoticeEditPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !isSuperAdmin || !id) return;
+    if (!user || !id) return;
     if (!title.trim() || !body.trim()) {
       showToast("error", "제목과 내용을 모두 입력해주세요.");
       return;
@@ -96,7 +115,6 @@ export default function NoticeEditPage() {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "x-user-role": user.role,
         },
         body: JSON.stringify({
           title: title.trim(),
@@ -110,6 +128,7 @@ export default function NoticeEditPage() {
         return;
       }
       showToast("success", "공지가 수정되었습니다.");
+      startNavigation();
       router.push(`/dashboard/notices/${id}`);
     } catch (err) {
       console.error("[NoticeEdit] 수정 실패", err);
