@@ -3,6 +3,8 @@ import { supabaseAdmin } from "@/server/supabase";
 import type { AuthContext } from "@/server/auth";
 import { assertShopInStoreGroup, getAuthContext } from "@/server/auth";
 
+export const dynamic = "force-dynamic";
+
 function getShopScope(auth: AuthContext | null, requestedShopId: string | null) {
   if (!auth) return { allowed: false as const, shopId: null as string | null };
   if (auth.role === "super_admin") {

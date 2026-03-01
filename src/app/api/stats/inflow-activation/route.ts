@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/server/supabase";
 import { assertShopInStoreGroup, getAuthContext } from "@/server/auth";
 
+export const dynamic = "force-dynamic";
+
 const CATEGORIES = ["로드", "컨택", "전화", "온라인", "지인"] as const;
 
 /** reports.path(유입경로) 텍스트를 통계 5개 카테고리로 매핑 */

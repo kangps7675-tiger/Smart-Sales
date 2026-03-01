@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/server/supabase";
 import { assertShopInStoreGroup, getAuthContext } from "@/server/auth";
 
+export const dynamic = "force-dynamic";
+
 type ReportRow = Record<string, unknown> & {
   id?: string;
   shop_id?: string;

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/server/supabase";
 import { getAuthContext } from "@/server/auth";
 
+export const dynamic = "force-dynamic";
+
 // GET /api/notices
 // 전체 공지 조회, pinned 먼저 정렬 후 최신순
 export async function GET(_req: NextRequest) {

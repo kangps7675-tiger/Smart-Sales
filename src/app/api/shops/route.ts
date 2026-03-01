@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/server/supabase";
 import { getAuthContext } from "@/server/auth";
 
+export const dynamic = "force-dynamic";
+
 /**
  * GET /api/shops
  * 현재 사용자가 접근 가능한 매장 목록을 DB(shops)에서 반환.

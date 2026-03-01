@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/server/supabase";
 import { assertShopInStoreGroup, getAuthContext } from "@/server/auth";
 
+export const dynamic = "force-dynamic";
+
 type RouteContext = { params: Promise<{ id: string }> };
 
 async function getConsultationAndScope(id: string, auth: Awaited<ReturnType<typeof getAuthContext>>) {

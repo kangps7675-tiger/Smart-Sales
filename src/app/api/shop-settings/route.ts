@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/server/supabase";
 import { assertShopInStoreGroup, getAuthContext } from "@/server/auth";
 
+export const dynamic = "force-dynamic";
+
 /**
  * GET /api/shop-settings?shop_id=...
  * 헤더: x-user-role, x-user-shop-id, x-store-group-id (지점장일 때)

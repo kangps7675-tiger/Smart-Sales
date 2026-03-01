@@ -2,6 +2,9 @@ import { type NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/server/supabase";
 import { getAuthContext } from "@/server/auth";
 
+/** 쿠키 기반 인증 사용 → 정적 렌더 불가, 동적 처리 */
+export const dynamic = "force-dynamic";
+
 /**
  * GET /api/store-groups
  * 지점(store_groups) 목록. super_admin 전용.
