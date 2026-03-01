@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   INFLOW_OPTIONS,
@@ -398,9 +398,9 @@ export function CrmPageView(props: CrmPageViewProps) {
                 선택 월({props.summaryMonth})의 상담 건수와 활성화 대기(△) 건수입니다.
               </CardDescription>
             </div>
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/dashboard/scheduled">예정건 보기</Link>
-            </Button>
+            <Link href="/dashboard/scheduled" className={buttonVariants({ variant: "outline", size: "sm" })}>
+              예정건 보기
+            </Link>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-6">

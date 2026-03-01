@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { useAuthStore } from "@/client/store/useAuthStore";
 import { useReportsStore } from "@/client/store/useReportsStore";
 
@@ -504,9 +504,9 @@ export default function DashboardPage() {
               <CardTitle className="text-base">CRM 요약</CardTitle>
               <CardDescription>오늘 상담·활성화 대기 현황입니다.</CardDescription>
             </div>
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/dashboard/crm">상담 목록</Link>
-            </Button>
+            <Link href="/dashboard/crm" className={buttonVariants({ variant: "outline", size: "sm" })}>
+              상담 목록
+            </Link>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-6">
@@ -533,12 +533,12 @@ export default function DashboardPage() {
               <CardDescription>오늘 상담·활성화 대기 건수입니다. 상세는 상담/일정에서 확인하세요.</CardDescription>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/dashboard/crm">상담</Link>
-              </Button>
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/dashboard/scheduled">일정</Link>
-              </Button>
+              <Link href="/dashboard/crm" className={buttonVariants({ variant: "outline", size: "sm" })}>
+                상담
+              </Link>
+              <Link href="/dashboard/scheduled" className={buttonVariants({ variant: "outline", size: "sm" })}>
+                일정
+              </Link>
             </div>
           </CardHeader>
           <CardContent>
