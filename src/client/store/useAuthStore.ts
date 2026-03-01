@@ -13,42 +13,46 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-// ─── 3단계 권한 (RBAC) ─────────────────────────────────────────────────────
+// ─── 4단계 권한 (RBAC) ─────────────────────────────────────────────────────
 /**
  * 사용자 역할 타입 정의
- * 
+ *
  * 권한 계층:
- * - super_admin: 전체 시스템 관리, 매장별 구독/결제, 공통 정책 관리
- * - tenant_admin: 매장주 - 판매사 관리, 매장 마진 정책, 실적 관리
- * - staff: 판매사 - 상담, 견적, 판매 일보 (다른 매장 데이터 접근 불가)
- * 
- * 직원용 SaaS: 고객(소비자) 가입 없음. 매장주·판매사·본사만 사용하는 매장 운영 도구.
+ * - super_admin: 본사 - 전체 시스템·정책·조직 관리
+ * - region_manager: 지점장 - 담당 지점 내 모든 매장 관리
+ * - tenant_admin: 매장주 - 본인 매장만 관리
+ * - staff: 판매사 - 본인 리드/계약만
  */
 export type Role =
-  | "super_admin"   // 전체 시스템 관리, 매장별 구독/결제, 공통 정책
-  | "tenant_admin"  // 매장주: 판매사 관리, 매장 마진 정책, 실적
-  | "staff";        // 판매사: 상담, 견적, 판매 일보 (다른 매장 데이터 불가)
+  | "super_admin"     // 본사
+  | "region_manager"  // 지점장 (지역/지점 그룹 단위)
+  | "tenant_admin"    // 매장주
+  | "staff";          // 판매사
 
 /**
  * 매장 정보 인터페이스
  */
 export interface Shop {
-  id: string;           // 매장 고유 ID (UUID)
-  name: string;         // 매장명
-  createdAt: string;     // 매장 생성 일시 (ISO 8601)
+  id: string;
+  name: string;
+  createdAt: string;
+  /** 지점/지역 그룹 ID (지점장이 해당 그룹 매장만 볼 때 사용) */
+  storeGroupId?: string | null;
 }
 
 /**
  * 사용자 정보 인터페이스
  */
 export interface User {
-  id: string;           // 사용자 고유 ID (UUID)
-  name: string;         // 사용자 이름
-  email: string;         // 이메일 주소
-  loginId: string;       // 로그인 아이디
-  role: Role;            // 사용자 역할 (권한)
-  /** 소속 매장 ID. super_admin은 null, tenant_admin/staff는 본인 매장 */
-  shopId: string | null; // 소속 매장 ID (super_admin은 null)
+  id: string;
+  name: string;
+  email: string;
+  loginId: string;
+  role: Role;
+  /** 소속 매장 ID. super_admin/region_manager는 null 가능, tenant_admin/staff는 본인 매장 */
+  shopId: string | null;
+  /** 지점장(region_manager)일 때 관리하는 지점 ID */
+  storeGroupId: string | null;
 }
 
 /**
@@ -94,6 +98,12 @@ interface AuthState {
     user: Omit<User, "id" | "role" | "shopId">,
     password: string
   ) => Promise<{ success: boolean; error?: string }>;
+  signUpAsRegionManager: (
+    storeGroupName: string,
+    user: Omit<User, "id" | "role" | "shopId">,
+    password: string,
+    signupKey: string
+  ) => Promise<{ success: boolean; error?: string }>;
   signUpWithInvite: (
     inviteCode: string,
     user: Omit<User, "id" | "role" | "shopId">,
@@ -113,6 +123,7 @@ interface AuthState {
 
 export const ROLE_LABEL: Record<Role, string> = {
   super_admin: "슈퍼 어드민",
+  region_manager: "지점장",
   tenant_admin: "매장주",
   staff: "판매사",
 };
@@ -141,6 +152,7 @@ export const useAuthStore = create<AuthState>()(
             headers: {
               "Content-Type": "application/json",
             },
+            credentials: "include",
             body: JSON.stringify({
               login_id: loginId.trim(),
               password,
@@ -153,17 +165,15 @@ export const useAuthStore = create<AuthState>()(
             const message =
               (json && (json.error as string | undefined)) ||
               "로그인에 실패했습니다. 아이디와 비밀번호를 확인하세요.";
-            if (typeof window !== "undefined") {
-              alert(message);
-            }
             return { success: false, error: message };
           }
 
-          const { id, name, role, shop_id } = json as {
+          const { id, name, role, shop_id, store_group_id } = json as {
             id: string;
             name: string | null;
             role: Role;
             shop_id: string | null;
+            store_group_id?: string | null;
           };
 
           const user: User = {
@@ -172,7 +182,8 @@ export const useAuthStore = create<AuthState>()(
             email: "",
             loginId: loginId.trim(),
             role,
-            shopId: shop_id,
+            shopId: shop_id ?? null,
+            storeGroupId: store_group_id ?? null,
           };
 
           set({
@@ -181,13 +192,30 @@ export const useAuthStore = create<AuthState>()(
             autoLogin: autoLogin ?? true,
           });
 
+          // 로그인 성공 후 DB 매장 목록 동기화 (GET /api/shops)
+          try {
+            const headers: Record<string, string> = { "x-user-role": user.role };
+            if (user.shopId) headers["x-user-shop-id"] = user.shopId;
+            if (user.storeGroupId) headers["x-store-group-id"] = user.storeGroupId;
+            const shopsRes = await fetch("/api/shops", { credentials: "include", headers });
+            const shopsJson = await shopsRes.json().catch(() => []);
+            if (shopsRes.ok && Array.isArray(shopsJson)) {
+              const fromApi: Shop[] = shopsJson.map((s: { id: string; name: string; createdAt: string; storeGroupId?: string | null }) => ({
+                id: s.id,
+                name: s.name,
+                createdAt: s.createdAt ?? new Date().toISOString(),
+                storeGroupId: s.storeGroupId ?? null,
+              }));
+              set((state) => ({ registeredShops: fromApi.length > 0 ? fromApi : state.registeredShops }));
+            }
+          } catch (_) {
+            // 매장 목록 조회 실패 시 기존 registeredShops 유지
+          }
+
           return { success: true };
         } catch (error) {
           console.error("[Auth] 로그인 요청 실패", error);
           const message = "로그인 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
-          if (typeof window !== "undefined") {
-            alert(message);
-          }
           return { success: false, error: message };
         }
       },
@@ -207,14 +235,6 @@ export const useAuthStore = create<AuthState>()(
        */
       signUpAsTenantAdmin: async (shopName, userData, password) => {
         try {
-          // 새 매장 생성 (로컬 UI용)
-          const localShopId = crypto.randomUUID();
-          const shop: Shop = {
-            id: localShopId,
-            name: shopName.trim(),
-            createdAt: new Date().toISOString(),
-          };
-
           const res = await fetch("/api/auth/signup", {
             method: "POST",
             headers: {
@@ -225,6 +245,7 @@ export const useAuthStore = create<AuthState>()(
               password,
               name: userData.name.trim(),
               role: "tenant_admin",
+              shop_name: shopName.trim(),
             }),
           });
 
@@ -240,9 +261,10 @@ export const useAuthStore = create<AuthState>()(
             return { success: false, error: message };
           }
 
-          const { id, role } = json as {
+          const { id, role, shop_id: responseShopId } = json as {
             id: string;
             role: Role;
+            shop_id: string | null;
           };
 
           const user: User = {
@@ -251,12 +273,19 @@ export const useAuthStore = create<AuthState>()(
             email: userData.email.trim(),
             loginId: userData.loginId.trim(),
             role: role ?? "tenant_admin",
-            shopId: localShopId,
+            shopId: responseShopId ?? null,
+            storeGroupId: null,
           };
 
-          // 상태 업데이트: 매장 및 사용자 추가, 자동 로그인
+          const shop: Shop = {
+            id: responseShopId ?? "",
+            name: shopName.trim(),
+            createdAt: new Date().toISOString(),
+          };
+
+          // 상태 업데이트: API에서 생성된 매장·사용자로 자동 로그인
           set((state) => ({
-            registeredShops: [...state.registeredShops, shop],
+            registeredShops: responseShopId ? [...state.registeredShops.filter((s) => s.id !== responseShopId), shop] : state.registeredShops,
             registeredUsers: [...state.registeredUsers, user],
             user,
             isLoggedIn: true,
@@ -268,6 +297,79 @@ export const useAuthStore = create<AuthState>()(
           console.error("[Auth] 매장주 가입 요청 실패", error);
           const message =
             "매장주 가입 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
+          if (typeof window !== "undefined") {
+            alert(message);
+          }
+          return { success: false, error: message };
+        }
+      },
+
+      /**
+       * 지점장(region_manager) 가입 처리
+       *
+       * @param storeGroupName - 관리할 지점/브랜드/법인 이름
+       * @param userData - 사용자 정보 (name, email, loginId)
+       * @param password - 로그인 비밀번호
+       * @param signupKey - 지점장 가입 키 (백엔드에서 REGION_MANAGER_SIGNUP_PASSWORD로 검증)
+       */
+      signUpAsRegionManager: async (storeGroupName, userData, password, signupKey) => {
+        try {
+          const res = await fetch("/api/auth/signup", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              login_id: userData.loginId.trim(),
+              password,
+              name: userData.name.trim(),
+              role: "region_manager",
+              store_group_name: storeGroupName.trim(),
+              region_manager_signup_password: signupKey,
+            }),
+          });
+
+          const json = await res.json().catch(() => ({} as any));
+
+          if (!res.ok) {
+            const message =
+              (json && (json.error as string | undefined)) ||
+              "지점장 가입에 실패했습니다. 가입 키와 정보를 다시 확인하세요.";
+            if (typeof window !== "undefined") {
+              alert(message);
+            }
+            return { success: false, error: message };
+          }
+
+          const { id, role, shop_id, store_group_id } = json as {
+            id: string;
+            role: Role;
+            shop_id: string | null;
+            store_group_id: string | null;
+          };
+
+          const user: User = {
+            id,
+            name: userData.name.trim(),
+            email: userData.email.trim(),
+            loginId: userData.loginId.trim(),
+            role: role ?? "region_manager",
+            shopId: shop_id ?? null,
+            storeGroupId: store_group_id ?? userData.storeGroupId ?? null,
+          };
+
+          set((state) => ({
+            registeredUsers: [...state.registeredUsers, user],
+            user,
+            isLoggedIn: true,
+            autoLogin: true,
+          }));
+
+          return { success: true };
+        } catch (error) {
+          console.error("[Auth] 지점장 가입 요청 실패", error);
+          const message =
+            "지점장 가입 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
           if (typeof window !== "undefined") {
             alert(message);
           }
@@ -345,6 +447,7 @@ export const useAuthStore = create<AuthState>()(
             loginId: userData.loginId.trim(),
             role: role ?? "staff",
             shopId: shop_id ?? invite.shopId,
+            storeGroupId: null,
           };
 
           // 상태 업데이트: 사용자 추가, 사용된 초대 코드 제거, 자동 로그인
@@ -382,8 +485,12 @@ export const useAuthStore = create<AuthState>()(
        */
       createInvite: (shopId) => {
         const { user, registeredShops, invites } = get();
-        if (user?.role !== "tenant_admin" && user?.role !== "super_admin") return null;
+        if (user?.role !== "tenant_admin" && user?.role !== "super_admin" && user?.role !== "region_manager") return null;
         if (user.role === "tenant_admin" && user.shopId !== shopId) return null;
+        if (user.role === "region_manager" && user.storeGroupId) {
+          const shop = registeredShops.find((s) => s.id === shopId);
+          if (!shop || shop.storeGroupId !== user.storeGroupId) return null;
+        }
         const shop = registeredShops.find((s) => s.id === shopId);
         if (!shop) return null;
         const charset = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -419,7 +526,13 @@ export const useAuthStore = create<AuthState>()(
        * 로그아웃 처리
        * 사용자 정보 및 로그인 상태 초기화
        */
-      logout: () => set({ user: null, isLoggedIn: false }),
+      logout: () => {
+        try {
+          fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+        } finally {
+          set({ user: null, isLoggedIn: false });
+        }
+      },
 
       /**
        * 사용자 정보 직접 설정
@@ -491,6 +604,7 @@ export const useAuthStore = create<AuthState>()(
             loginId: userData.loginId.trim(),
             role: role ?? "super_admin",
             shopId: shop_id ?? null,
+            storeGroupId: null,
           };
 
           // 상태 업데이트: 사용자 추가, 자동 로그인
@@ -512,23 +626,20 @@ export const useAuthStore = create<AuthState>()(
 
       /**
        * 현재 사용자가 접근 가능한 매장 목록 조회
-       * 
-       * @returns 접근 가능한 매장 배열
-       * 
-       * 권한별 반환:
+       *
        * - super_admin: 모든 매장
+       * - region_manager: 담당 지점(storeGroupId) 매장 (동일 storeGroupId 또는 전부, API 연동 전까지 전부)
        * - tenant_admin/staff: 본인 매장만
-       * (직원용: customer 역할 없음)
        */
       getShopsForCurrentUser: () => {
         const { user, registeredShops } = get();
         if (!user) return [];
-        // 슈퍼 어드민은 모든 매장 접근 가능
         if (user.role === "super_admin") return registeredShops;
-        // 본인 매장만 반환
-        if (user.shopId) {
-          return registeredShops.filter((s) => s.id === user.shopId);
+        if (user.role === "region_manager" && user.storeGroupId) {
+          return registeredShops.filter((s) => s.storeGroupId === user.storeGroupId);
         }
+        if (user.role === "region_manager") return registeredShops;
+        if (user.shopId) return registeredShops.filter((s) => s.id === user.shopId);
         return [];
       },
     }),

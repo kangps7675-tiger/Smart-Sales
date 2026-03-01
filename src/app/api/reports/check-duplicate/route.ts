@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/server/supabase';
+import { assertShopInStoreGroup, getAuthContext } from '@/server/auth';
 
 /**
  * 판매일보 업로드 중복 체크 API
@@ -18,6 +19,9 @@ import { supabaseAdmin } from '@/server/supabase';
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await getAuthContext(req);
+    if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const { file_hash, shop_id } = await req.json();
 
     if (!file_hash || !shop_id) {
@@ -25,6 +29,16 @@ export async function POST(req: NextRequest) {
         { error: 'file_hash and shop_id are required' },
         { status: 400 },
       );
+    }
+
+    const targetShopId = String(shop_id);
+    if (auth.role === "region_manager") {
+      if (!auth.storeGroupId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      const ok = await assertShopInStoreGroup(targetShopId, auth.storeGroupId);
+      if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if ((auth.role === "tenant_admin" || auth.role === "staff") && auth.shopId !== targetShopId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // 중복 여부 조회

@@ -42,25 +42,30 @@ export default function CustomersPage() {
   const loadEntries = useReportsStore((s) => s.loadEntries);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedShopId, setSelectedShopId] = useState(userShopId || (shops[0]?.id ?? ""));
 
   const isSuperAdmin = user?.role === "super_admin";
+  const isRegionManager = user?.role === "region_manager";
   const isBranchUser = user?.role === "tenant_admin" || user?.role === "staff";
-
+  const canSelectShop = isSuperAdmin || isRegionManager;
   const shopId = isBranchUser
     ? userShopId
-    : (userShopId || (shops.length > 0 ? shops[0]?.id ?? "" : ""));
+    : (selectedShopId || userShopId || (shops[0]?.id ?? ""));
+
+  useEffect(() => {
+    if (canSelectShop && shops.length > 0 && !selectedShopId) setSelectedShopId(shops[0].id);
+  }, [canSelectShop, shops, selectedShopId]);
 
   /**
    * 서버에서 판매일보 데이터 불러오기
    *
    * - ReportsPage와 동일한 로직으로 /api/reports GET 호출
-   * - super_admin: 전체 조회
+   * - super_admin/region_manager: 선택 매장 또는 전체/지점
    * - tenant_admin/staff: 본인 매장만 조회
    */
   useEffect(() => {
-    if (!user) return;
-    if (user.role !== "super_admin" && !shopId) return;
-    loadEntries(shopId || null, user.role);
+    if (!user || !shopId) return;
+    loadEntries(shopId, user.role);
   }, [user, shopId, loadEntries]);
 
   const shopEntries = useMemo(
@@ -142,11 +147,27 @@ export default function CustomersPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">고객 관리</h1>
-        <p className="mt-2 text-muted-foreground">
-          판매일보에 기록된 데이터를 기준으로 고객별 상담·개통 이력을 한눈에 모아봅니다.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">고객 관리</h1>
+          <p className="mt-2 text-muted-foreground">
+            판매일보에 기록된 데이터를 기준으로 고객별 상담·개통 이력을 한눈에 모아봅니다.
+          </p>
+        </div>
+        {canSelectShop && shops.length > 1 && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">매장 선택</label>
+            <select
+              value={shopId}
+              onChange={(e) => setSelectedShopId(e.target.value)}
+              className="flex h-9 min-w-[12rem] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {shops.map((shop) => (
+                <option key={shop.id} value={shop.id}>{shop.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       <Card className="border-border/70">
@@ -179,20 +200,26 @@ export default function CustomersPage() {
       </Card>
 
       <Card className="border-border/70">
-        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
-          <div>
+        <CardHeader className="flex flex-row items-center justify-between gap-6 space-y-0 pb-4">
+          <div className="space-y-2">
             <CardTitle className="text-base">고객 명부</CardTitle>
-            <CardDescription>
+            <CardDescription className="mt-0">
               이름·연락처 기준으로 고객을 구분합니다 (동명이인 구별). 담당 판매사는 최근 거래 기준입니다. 검색창에 이름이나 번호 일부를 입력해 찾아보세요.
             </CardDescription>
           </div>
-          <div className="w-full max-w-xs">
+          <div className="relative w-full max-w-xs">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+            </span>
             <Input
               type="text"
               placeholder="고객명 또는 연락처 검색..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-9"
+              className="h-9 pl-9"
             />
           </div>
         </CardHeader>
