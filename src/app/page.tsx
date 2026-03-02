@@ -24,7 +24,7 @@ const logoFont = Cormorant_Garamond({
 });
 
 const handwritingFont = Nanum_Pen_Script({
-  subsets: ["korean"],
+  subsets: ["latin"],
   weight: "400",
 });
 
