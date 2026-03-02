@@ -127,56 +127,39 @@ body {
   }
 }
 
-@keyframes handwriting-reveal {
+@keyframes handwriting-char {
   0% {
-    clip-path: inset(0 100% 0 0);
-  }
-  100% {
-    clip-path: inset(0 0 0 0);
-  }
-}
-
-@keyframes handwriting-pen {
-  0% {
-    transform: translate(-10%, -20%);
     opacity: 0;
+    transform: translateY(0.6em) skewX(-12deg);
   }
-  5% {
+  60% {
     opacity: 1;
+    transform: translateY(0) skewX(0deg);
   }
   100% {
-    transform: translate(110%, -20%);
-    opacity: 0;
+    opacity: 1;
+    transform: translateY(0) skewX(0deg);
   }
 }
 
 .handwriting-text {
-  --handwriting-duration: 1.9s;
   --handwriting-delay: 0s;
-  position: relative;
+  --handwriting-char-duration: 0.35s;
+  --handwriting-char-interval: 0.05s;
   display: inline-block;
-  overflow: hidden;
   white-space: pre-wrap;
-  animation: handwriting-reveal var(--handwriting-duration) ease forwards;
-  animation-delay: var(--handwriting-delay);
 }
 
-.handwriting-text::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 0.85em;
-  height: 0.85em;
-  border-radius: 999px;
-  background: radial-gradient(circle at 30% 30%, #fefce8 0, #facc15 30%, #b45309 100%);
-  box-shadow: 0 0 10px rgba(250, 204, 21, 0.7);
-  transform: translate(-10%, -20%);
+.handwriting-char {
+  display: inline-block;
   opacity: 0;
-  pointer-events: none;
-  mix-blend-mode: screen;
-  animation: handwriting-pen var(--handwriting-duration) ease forwards;
-  animation-delay: var(--handwriting-delay);
+  animation-name: handwriting-char;
+  animation-duration: var(--handwriting-char-duration);
+  animation-fill-mode: forwards;
+  animation-timing-function: ease-out;
+  animation-delay: calc(
+    var(--handwriting-delay) + var(--char-index, 0) * var(--handwriting-char-interval)
+  );
 }
 
 @keyframes typing-cursor {
