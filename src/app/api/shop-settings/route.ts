@@ -144,16 +144,25 @@ export async function PATCH(req: NextRequest) {
         : Number(existing?.per_sale_incentive) ?? 30000;
     const report_import_config = body.report_import_config !== undefined
       ? normalizeReportImportConfig(body.report_import_config)
-      : (existing as { report_import_config?: unknown } | null)?.report_import_config ?? null;
+      : normalizeReportImportConfig(
+          (existing as { report_import_config?: unknown } | null)?.report_import_config ?? null,
+        );
 
-    const payload: { shop_id: string; margin_rate_pct: number; sales_target_monthly: number; per_sale_incentive: number; updated_at: string; report_import_config?: Record<string, unknown> | null } = {
+    const payload: {
+      shop_id: string;
+      margin_rate_pct: number;
+      sales_target_monthly: number;
+      per_sale_incentive: number;
+      updated_at: string;
+      report_import_config: Record<string, unknown> | null;
+    } = {
       shop_id: shopId,
       margin_rate_pct,
       sales_target_monthly,
       per_sale_incentive,
       updated_at: new Date().toISOString(),
+      report_import_config,
     };
-    if (report_import_config !== undefined) payload.report_import_config = report_import_config;
 
     const { data, error } = await supabaseAdmin
       .from('shop_settings')
