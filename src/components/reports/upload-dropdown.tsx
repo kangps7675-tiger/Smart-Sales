@@ -14,6 +14,7 @@ import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { parseExcelToReportEntries } from "@/lib/excel-report";
+import type { ReportImportConfig } from "@/lib/report-entry-map";
 import { useReportsStore } from "@/client/store/useReportsStore";
 
 /**
@@ -90,8 +91,21 @@ export function UploadDropdown({ shopId, noShopMessage }: UploadDropdownProps) {
     setOpen(false); // 파일 선택 시 드롭다운 닫기
 
     try {
-      // 엑셀 파일 파싱
-      const { entries, errors } = await parseExcelToReportEntries(file, shopId);
+      let importConfig: ReportImportConfig | null = null;
+      try {
+        const settingsRes = await fetch(`/api/shop-settings?shop_id=${encodeURIComponent(shopId)}`);
+        if (settingsRes.ok) {
+          const settings = await settingsRes.json();
+          if (settings.report_import_config && typeof settings.report_import_config === "object") {
+            importConfig = settings.report_import_config as ReportImportConfig;
+          }
+        }
+      } catch {
+        // 설정 없으면 기본 매핑 사용
+      }
+      const { entries, errors } = await parseExcelToReportEntries(file, shopId, {
+        config: importConfig ?? undefined,
+      });
       
       // 파싱된 데이터가 있으면 스토어에 저장
       if (entries.length > 0) {

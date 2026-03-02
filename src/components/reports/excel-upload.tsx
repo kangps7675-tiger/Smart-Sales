@@ -16,6 +16,7 @@
 import { useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { parseExcelToReportEntries } from "@/lib/excel-report";
+import type { ReportImportConfig } from "@/lib/report-entry-map";
 import type { ReportEntry } from "@/client/store/useReportsStore";
 import { useReportsStore } from "@/client/store/useReportsStore";
 import { usePolicyStore } from "@/client/store/usePolicyStore";
@@ -144,7 +145,22 @@ export function ExcelUpload({ shopId, onParsed }: ExcelUploadProps) {
         // 중복 체크 실패 시에도 업로드 자체는 계속 진행
       }
 
-      const { entries: rawEntries, errors } = await parseExcelToReportEntries(file, shopId);
+      let importConfig: ReportImportConfig | null = null;
+      try {
+        const settingsRes = await fetch(`/api/shop-settings?shop_id=${encodeURIComponent(shopId)}`);
+        if (settingsRes.ok) {
+          const settings = await settingsRes.json();
+          if (settings.report_import_config && typeof settings.report_import_config === "object") {
+            importConfig = settings.report_import_config as ReportImportConfig;
+          }
+        }
+      } catch {
+        // 설정 없으면 기본 매핑 사용
+      }
+
+      const { entries: rawEntries, errors } = await parseExcelToReportEntries(file, shopId, {
+        config: importConfig ?? undefined,
+      });
       const entries = fillMarginsFromPolicy(rawEntries);
 
       if (entries.length > 0) {

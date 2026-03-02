@@ -1,8 +1,22 @@
 import type { ReportEntry } from "@/client/store/useReportsStore";
 
-type ReportEntryInputKey = keyof Omit<ReportEntry, "id" | "shopId" | "uploadedAt">;
+export type ReportEntryInputKey = keyof Omit<ReportEntry, "id" | "shopId" | "uploadedAt">;
 
-const HEADER_MAP: Record<string, ReportEntryInputKey> = {
+/**
+ * 매장별 엑셀/시트 가져오기 설정.
+ * null/미설정이면 기본 매핑 및 기본 마진 계산(액면+구두 A~F) 사용.
+ */
+export interface ReportImportConfig {
+  /** 엑셀 헤더명 → 내부 필드 키. 같은 헤더가 없으면 기본 매핑으로 보완 */
+  columnMapping?: Record<string, string>;
+  /** 'use_column': 마진 컬럼만 사용. 'sum_fields': 마진 없을 때 지정 필드 합산 */
+  marginFormula?: "use_column" | "sum_fields";
+  /** marginFormula가 'sum_fields'일 때 합산할 숫자 필드 키 목록 */
+  marginSumFields?: string[];
+}
+
+/** 기본 매핑(한글/영문 휴대폰 판매일보). 매장 설정 없을 때 사용하며, 설정 UI에서 참조 가능 */
+export const DEFAULT_HEADER_MAP: Record<string, ReportEntryInputKey> = {
   이름: "name",
   고객명: "name",
   name: "name",
@@ -103,6 +117,17 @@ const HEADER_MAP: Record<string, ReportEntryInputKey> = {
   "개통 매장": "inspectionStore",
 };
 
+/** 숫자로 파싱하는 필드 (마진 합산 후보 포함) */
+const NUMERIC_KEYS = new Set<ReportEntryInputKey>([
+  "amount", "margin", "supportAmount", "factoryPrice", "officialSubsidy",
+  "installmentPrincipal", "installmentMonths", "faceAmount",
+  "verbalA", "verbalB", "verbalC", "verbalD", "verbalE", "verbalF",
+]);
+
+function isNumericKey(key: string): key is ReportEntryInputKey {
+  return NUMERIC_KEYS.has(key as ReportEntryInputKey);
+}
+
 function normalizeDate(value: unknown): string {
   if (value == null || value === "") return "";
   const s = String(value).trim();
@@ -125,17 +150,41 @@ export interface ParseReportResult {
   errors: string[];
 }
 
+export interface ParseReportOptions {
+  config?: ReportImportConfig | null;
+}
+
+/**
+ * 테이블 행(엑셀/CSV 첫 행=헤더)을 판매일보 항목으로 변환.
+ * config가 있으면 매장별 컬럼 매핑·마진 계산 방식을 적용하고, 없으면 기본 매핑 사용.
+ */
 export function parseTabularRowsToReportEntries(
   rows: unknown[][],
-  shopId: string
+  shopId: string,
+  options?: ParseReportOptions
 ): ParseReportResult {
   if (!Array.isArray(rows) || rows.length < 2) {
     return { entries: [], errors: ["헤더와 최소 1행의 데이터가 필요합니다."] };
   }
 
+  const config = options?.config;
+  const customMap = config?.columnMapping && Object.keys(config.columnMapping).length > 0
+    ? config.columnMapping
+    : null;
+  const effectiveHeaderMap: Record<string, ReportEntryInputKey> = { ...DEFAULT_HEADER_MAP };
+  const validKeys = new Set<ReportEntryInputKey>(Object.values(DEFAULT_HEADER_MAP));
+  if (customMap) {
+    for (const [header, key] of Object.entries(customMap)) {
+      const k = key.trim() as ReportEntryInputKey;
+      if (k && validKeys.has(k)) {
+        (effectiveHeaderMap as Record<string, ReportEntryInputKey>)[header.trim()] = k;
+      }
+    }
+  }
+
   const headers = (rows[0] as unknown[]).map((h) => String(h ?? "").trim());
   const colToKey: ReportEntryInputKey[] = headers.map(
-    (h) => HEADER_MAP[h] ?? ("" as ReportEntryInputKey)
+    (h) => effectiveHeaderMap[h] ?? ("" as ReportEntryInputKey)
   );
 
   const entries: Omit<ReportEntry, "id" | "uploadedAt">[] = [];
@@ -183,50 +232,35 @@ export function parseTabularRowsToReportEntries(
       if (!key) return;
       const raw = row[colIdx];
       if (key === "saleDate") record[key] = normalizeDate(raw);
-      else if (
-        key === "amount" ||
-        key === "margin" ||
-        key === "supportAmount" ||
-        key === "factoryPrice" ||
-        key === "officialSubsidy" ||
-        key === "installmentPrincipal" ||
-        key === "installmentMonths" ||
-        key === "faceAmount" ||
-        key === "verbalA" ||
-        key === "verbalB" ||
-        key === "verbalC" ||
-        key === "verbalD" ||
-        key === "verbalE" ||
-        key === "verbalF"
-      ) {
-        record[key] = normalizeNumber(raw);
-      } else {
-        record[key] = raw != null ? String(raw).trim() : "";
-      }
+      else if (NUMERIC_KEYS.has(key)) record[key] = normalizeNumber(raw);
+      else record[key] = raw != null ? String(raw).trim() : "";
     });
 
     const name = record.name as string;
     const phone = record.phone as string;
     if (!name && !phone) continue;
 
-    // 블랙(최종 마진) 계산:
-    // - 기본 원칙: 엑셀/시트에서 넘어온 margin 값이 있으면 그대로 사용
-    // - margin이 0이거나 비어 있고, 액면/구두 A~F 중 하나라도 값이 있으면
-    //   faceAmount + verbalA..F 합으로 margin을 계산
-    const faceAmount = (record.faceAmount as number) ?? 0;
-    const verbalA = (record.verbalA as number) ?? 0;
-    const verbalB = (record.verbalB as number) ?? 0;
-    const verbalC = (record.verbalC as number) ?? 0;
-    const verbalD = (record.verbalD as number) ?? 0;
-    const verbalE = (record.verbalE as number) ?? 0;
-    const verbalF = (record.verbalF as number) ?? 0;
-
-    const computedBlack =
-      faceAmount + verbalA + verbalB + verbalC + verbalD + verbalE + verbalF;
-
+    // 마진 계산: config에 따라 엑셀 컬럼만 사용하거나, 없을 때 지정 필드 합산
     const originalMargin = (record.margin as number) ?? 0;
-    if ((originalMargin === 0 || Number.isNaN(originalMargin)) && computedBlack !== 0) {
-      record.margin = computedBlack;
+    if (originalMargin === 0 || Number.isNaN(originalMargin)) {
+      if (config?.marginFormula === "sum_fields" && Array.isArray(config.marginSumFields) && config.marginSumFields.length > 0) {
+        let sum = 0;
+        for (const field of config.marginSumFields) {
+          if (isNumericKey(field)) sum += (record[field] as number) ?? 0;
+        }
+        if (sum !== 0) record.margin = sum;
+      } else {
+        // 기본: 액면 + 구두 A~F
+        const faceAmount = (record.faceAmount as number) ?? 0;
+        const verbalA = (record.verbalA as number) ?? 0;
+        const verbalB = (record.verbalB as number) ?? 0;
+        const verbalC = (record.verbalC as number) ?? 0;
+        const verbalD = (record.verbalD as number) ?? 0;
+        const verbalE = (record.verbalE as number) ?? 0;
+        const verbalF = (record.verbalF as number) ?? 0;
+        const computedBlack = faceAmount + verbalA + verbalB + verbalC + verbalD + verbalE + verbalF;
+        if (computedBlack !== 0) record.margin = computedBlack;
+      }
     }
 
     entries.push({
