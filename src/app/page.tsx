@@ -14,18 +14,13 @@
  */
 
 import Link from "next/link";
-import { Cormorant_Garamond, Nanum_Brush_Script } from "next/font/google";
+import { Cormorant_Garamond } from "next/font/google";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NavLinkWithLoading } from "@/components/nav-link-with-loading";
 const logoFont = Cormorant_Garamond({
   subsets: ["latin"],
   weight: "600",
-});
-
-const handwritingFont = Nanum_Brush_Script({
-  subsets: ["korean"],
-  weight: "400",
 });
 
 interface HandwritingTextProps {
@@ -38,7 +33,7 @@ function HandwritingText({ text, startDelay = 0, className }: HandwritingTextPro
   const chars = Array.from(text);
   return (
     <span
-      className={`handwriting-text ${handwritingFont.className} ${className ?? ""}`}
+      className={`handwriting-text ${className ?? ""}`}
       style={{ ["--handwriting-delay" as string]: `${startDelay}s` }}
     >
       {chars.map((ch, index) =>
@@ -88,6 +83,7 @@ export default function LandingPage() {
             <HandwritingText
               text={"휴대폰 매장 운영,\n한 화면에서 정리 끝."}
               startDelay={0}
+              className="handwriting-hero font-shilla text-4xl sm:text-5xl lg:text-[3.5rem] lg:leading-snug"
             />
           </h1>
           <p className="mt-6 text-sm text-muted-foreground sm:text-base">
@@ -96,6 +92,7 @@ export default function LandingPage() {
                 "판매일보, 직원·매장 관리, 급여 계산, 정책 단가까지.\n엑셀 없이도 매일의 숫자를 안전하게 정리해 드립니다."
               }
               startDelay={2.1}
+              className="font-soonbatang"
             />
           </p>
           <div className="mt-10 flex flex-col items-center gap-3">
@@ -105,7 +102,11 @@ export default function LandingPage() {
               </Button>
             </Link>
             <span className="text-xs text-muted-foreground sm:text-sm">
-              <HandwritingText text={"설치 없이 바로 웹에서"} startDelay={4.3} />
+              <HandwritingText
+                text={"설치 없이 바로 웹에서"}
+                startDelay={4.3}
+                className="font-soonbatang"
+              />
             </span>
           </div>
         </div>
@@ -122,12 +123,14 @@ export default function LandingPage() {
               <HandwritingText
                 text={"판매 데이터부터 급여까지, 흐름대로 이어집니다."}
                 startDelay={6.3}
+                className="font-soonbatang"
               />
             </h2>
             <p className="text-sm text-muted-foreground">
               <HandwritingText
                 text={"복잡한 화면 대신, 매일 자주 쓰는 네 가지 기능에 집중했습니다"}
                 startDelay={8.3}
+                className="font-soonbatang"
               />
             </p>
           </div>

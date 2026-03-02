@@ -127,6 +127,48 @@ body {
   }
 }
 
+/* 한글 손글씨 폰트 - 작은 글씨용 */
+@font-face {
+  font-family: "InkLiquid";
+  src: url("https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_one@1.0/InkLipquid.woff")
+    format("woff");
+  font-weight: normal;
+  font-display: swap;
+}
+
+/* 한글 손글씨 폰트 - 큰 글씨용 */
+@font-face {
+  font-family: "Shilla";
+  src: url("https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2206-02@1.0/Shilla_CultureM-Medium.woff2")
+    format("woff2");
+  font-weight: 500;
+  font-display: swap;
+}
+
+.font-ink {
+  font-family: "InkLiquid", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+}
+
+.font-shilla {
+  font-family: "Shilla", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+}
+
+/* 한글 바탕 폰트 - 작은 본문용 */
+@font-face {
+  font-family: "Soonbatang";
+  src: url("https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_eight@1.0/SunBatang-Light.woff")
+    format("woff");
+  font-weight: 300;
+  font-display: swap;
+}
+
+.font-soonbatang {
+  font-family: "Soonbatang", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+}
+
 @keyframes handwriting-char {
   0% {
     opacity: 0;
@@ -148,6 +190,11 @@ body {
   --handwriting-char-interval: 0.05s;
   display: inline-block;
   white-space: pre-wrap;
+}
+
+.handwriting-hero {
+  --handwriting-char-duration: 0.45s;
+  --handwriting-char-interval: 0.09s;
 }
 
 .handwriting-char {
