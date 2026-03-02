@@ -83,7 +83,7 @@ export default function LandingPage() {
             <HandwritingText
               text={"휴대폰 매장 운영,\n한 화면에서 정리 끝."}
               startDelay={0}
-              className="handwriting-hero font-shilla text-4xl sm:text-5xl lg:text-[3.5rem] lg:leading-snug"
+              className="handwriting-hero font-soonbatang text-4xl sm:text-5xl lg:text-[3.5rem] lg:leading-snug"
             />
           </h1>
           <p className="mt-6 text-sm text-muted-foreground sm:text-base">
