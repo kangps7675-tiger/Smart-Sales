@@ -14,13 +14,18 @@
  */
 
 import Link from "next/link";
-import { Cormorant_Garamond } from "next/font/google";
+import { Cormorant_Garamond, Nanum_Pen_Script } from "next/font/google";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NavLinkWithLoading } from "@/components/nav-link-with-loading";
 const logoFont = Cormorant_Garamond({
   subsets: ["latin"],
   weight: "600",
+});
+
+const handwritingFont = Nanum_Pen_Script({
+  subsets: ["latin"],
+  weight: "400",
 });
 
 export default function LandingPage() {
@@ -50,14 +55,24 @@ export default function LandingPage() {
       <section className="border-b border-border/40 bg-gradient-to-b from-background to-muted/40 px-4 py-24 sm:py-32 lg:py-36">
         <div className="mx-auto max-w-3xl text-center">
           <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl lg:text-[2.75rem] lg:leading-tight">
-            휴대폰 매장 운영,
-            <br />
-            한 화면에서 정리 끝.
+            <span
+              className={`handwriting-text ${handwritingFont.className}`}
+              style={{ ["--handwriting-delay" as string]: "0s" }}
+            >
+              휴대폰 매장 운영,
+              <br />
+              한 화면에서 정리 끝.
+            </span>
           </h1>
           <p className="mt-6 text-sm text-muted-foreground sm:text-base">
-            판매일보, 직원·매장 관리, 급여 계산, 정책 단가까지.
-            <br />
-            엑셀 없이도 매일의 숫자를 안전하게 정리해 드립니다.
+            <span
+              className={`handwriting-text ${handwritingFont.className}`}
+              style={{ ["--handwriting-delay" as string]: "2.1s" }}
+            >
+              판매일보, 직원·매장 관리, 급여 계산, 정책 단가까지.
+              <br />
+              엑셀 없이도 매일의 숫자를 안전하게 정리해 드립니다.
+            </span>
           </p>
           <div className="mt-10 flex flex-col items-center gap-3">
             <Link href="/login?tab=tenant_signup">
@@ -66,7 +81,12 @@ export default function LandingPage() {
               </Button>
             </Link>
             <span className="text-xs text-muted-foreground sm:text-sm">
-              설치 없이 바로 웹에서 사용 · 매장주/직원 전용
+              <span
+                className={`handwriting-text ${handwritingFont.className}`}
+                style={{ ["--handwriting-delay" as string]: "4.3s" }}
+              >
+                설치 없이 바로 웹에서
+              </span>
             </span>
           </div>
         </div>
@@ -80,10 +100,20 @@ export default function LandingPage() {
               매장 운영에 꼭 필요한 기능만
             </p>
             <h2 className="mt-4 text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-              판매 데이터부터 급여까지, 흐름대로 이어집니다.
+              <span
+                className={`handwriting-text ${handwritingFont.className}`}
+                style={{ ["--handwriting-delay" as string]: "6.3s" }}
+              >
+                판매 데이터부터 급여까지, 흐름대로 이어집니다.
+              </span>
             </h2>
             <p className="text-sm text-muted-foreground">
-              복잡한 화면 대신, 매일 자주 쓰는 네 가지 기능에 집중했습니다.
+              <span
+                className={`handwriting-text ${handwritingFont.className}`}
+                style={{ ["--handwriting-delay" as string]: "8.3s" }}
+              >
+                복잡한 화면 대신, 매일 자주 쓰는 네 가지 기능에 집중했습니다
+              </span>
             </p>
           </div>
 

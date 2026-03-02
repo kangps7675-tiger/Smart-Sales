@@ -24,14 +24,26 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuthStore } from "@/client/store/useAuthStore";
+import type { ReportImportConfig } from "@/lib/report-entry-map";
 
 interface ShopSettingsDto {
   shop_id: string;
   margin_rate_pct: number;
   sales_target_monthly: number;
   per_sale_incentive: number;
+  report_import_config?: ReportImportConfig | null;
   updated_at?: string;
 }
+
+const MARGIN_SUM_FIELD_OPTIONS: { key: string; label: string }[] = [
+  { key: "faceAmount", label: "액면" },
+  { key: "verbalA", label: "구두 A" },
+  { key: "verbalB", label: "구두 B" },
+  { key: "verbalC", label: "구두 C" },
+  { key: "verbalD", label: "구두 D" },
+  { key: "verbalE", label: "구두 E" },
+  { key: "verbalF", label: "구두 F" },
+];
 
 /**
  * 매장 설정 페이지 컴포넌트
@@ -48,6 +60,7 @@ export default function ShopSettingsPage() {
   const canSelectShop = user?.role === "super_admin" || user?.role === "region_manager";
   const [selectedShopId, setSelectedShopId] = useState("");
   const [settings, setSettings] = useState<ShopSettingsDto | null>(null);
+  const [columnMappingText, setColumnMappingText] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -80,8 +93,18 @@ export default function ShopSettingsPage() {
       if (user.storeGroupId) headers["x-store-group-id"] = user.storeGroupId;
       const res = await fetch(`/api/shop-settings?shop_id=${encodeURIComponent(shopId)}`, { headers });
       const json = await res.json().catch(() => ({}));
-      if (res.ok) setSettings(json as ShopSettingsDto);
-      else setSettings(null);
+      if (res.ok) {
+        setSettings(json as ShopSettingsDto);
+        const cfg = (json as ShopSettingsDto).report_import_config?.columnMapping;
+        setColumnMappingText(
+          cfg && typeof cfg === "object"
+            ? JSON.stringify(cfg, null, 2)
+            : ""
+        );
+      } else {
+        setSettings(null);
+        setColumnMappingText("");
+      }
     } catch {
       setSettings(null);
     } finally {
@@ -94,6 +117,48 @@ export default function ShopSettingsPage() {
     else setSettings(null);
   }, [selectedShopId, loadSettings]);
 
+  const setReportImportConfig = useCallback((update: Partial<ReportImportConfig> | null) => {
+    setSettings((prev) => {
+      if (!prev) return prev;
+      if (update === null) return { ...prev, report_import_config: null };
+      const next = { ...(prev.report_import_config ?? {}), ...update };
+      return { ...prev, report_import_config: next };
+    });
+  }, []);
+
+  const buildReportImportConfig = useCallback((): ReportImportConfig | null => {
+    let columnMapping: Record<string, string> | undefined;
+    const trimmed = columnMappingText.trim();
+    if (trimmed) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const m: Record<string, string> = {};
+          for (const [k, v] of Object.entries(parsed)) {
+            if (typeof v === "string") m[String(k).trim()] = v.trim();
+          }
+          columnMapping = Object.keys(m).length ? m : undefined;
+        }
+      } catch {
+        columnMapping = settings?.report_import_config?.columnMapping;
+      }
+    } else {
+      columnMapping = settings?.report_import_config?.columnMapping;
+    }
+    const marginFormula = settings?.report_import_config?.marginFormula;
+    const marginSumFields = settings?.report_import_config?.marginSumFields?.length
+      ? settings.report_import_config.marginSumFields
+      : undefined;
+    if (!columnMapping && !marginFormula && !marginSumFields?.length) {
+      return null;
+    }
+    return {
+      columnMapping,
+      marginFormula,
+      marginSumFields,
+    };
+  }, [columnMappingText, settings?.report_import_config]);
+
   const handleSave = async () => {
     if (!selectedShopId || !user || !settings) return;
     setSaving(true);
@@ -105,15 +170,18 @@ export default function ShopSettingsPage() {
       };
       if (user.shopId) headers["x-user-shop-id"] = user.shopId;
       if (user.storeGroupId) headers["x-store-group-id"] = user.storeGroupId;
+      const reportImportConfig = buildReportImportConfig();
+      const body: Record<string, unknown> = {
+        shop_id: selectedShopId,
+        margin_rate_pct: settings.margin_rate_pct,
+        sales_target_monthly: settings.sales_target_monthly,
+        per_sale_incentive: settings.per_sale_incentive,
+        report_import_config: reportImportConfig,
+      };
       const res = await fetch("/api/shop-settings", {
         method: "PATCH",
         headers,
-        body: JSON.stringify({
-          shop_id: selectedShopId,
-          margin_rate_pct: settings.margin_rate_pct,
-          sales_target_monthly: settings.sales_target_monthly,
-          per_sale_incentive: settings.per_sale_incentive,
-        }),
+        body: JSON.stringify(body),
       });
       const json = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -238,6 +306,93 @@ export default function ShopSettingsPage() {
             ) : (
               <p className="text-sm text-muted-foreground">설정을 불러올 수 없습니다.</p>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {selectedShopId && settings && (
+        <Card className="border-border/80">
+          <CardHeader>
+            <CardTitle>엑셀 가져오기 설정</CardTitle>
+            <CardDescription>
+              이 매장에서 엑셀/구글 시트를 불러올 때 사용할 컬럼 매핑과 마진 계산 방식을 설정합니다. 비워두면 기본 매핑(이름, 연락처, 개통단말기 등)을 사용합니다.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="column_mapping">컬럼 매핑 (선택)</Label>
+              <textarea
+                id="column_mapping"
+                className="min-h-[120px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder={'{"엑셀 헤더명": "내부필드"}\n예: {"고객명":"name","연락처":"phone","판매일":"saleDate","마진":"margin"}'}
+                value={columnMappingText}
+                onChange={(e) => setColumnMappingText(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                엑셀 첫 행 헤더명을 내부 필드(name, phone, saleDate, productName, amount, margin, salesPerson, planName, supportAmount, faceAmount, verbalA~F 등)로 매핑하는 JSON. 비워두면 기본 매핑 사용.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>마진 계산 (마진 컬럼이 없을 때)</Label>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="margin_formula"
+                    checked={(settings.report_import_config?.marginFormula ?? null) === null}
+                    onChange={() => setReportImportConfig({ marginFormula: undefined, marginSumFields: undefined })}
+                  />
+                  기본 (액면 + 구두 A~F)
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="margin_formula"
+                    checked={settings.report_import_config?.marginFormula === "use_column"}
+                    onChange={() => setReportImportConfig({ marginFormula: "use_column", marginSumFields: undefined })}
+                  />
+                  엑셀 마진 컬럼만 사용
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="margin_formula"
+                    checked={settings.report_import_config?.marginFormula === "sum_fields"}
+                    onChange={() =>
+                      setReportImportConfig({
+                        marginFormula: "sum_fields",
+                        marginSumFields: settings.report_import_config?.marginSumFields ?? ["faceAmount", "verbalA", "verbalB", "verbalC", "verbalD", "verbalE", "verbalF"],
+                      })
+                    }
+                  />
+                  지정 필드 합산
+                </label>
+              </div>
+              {settings.report_import_config?.marginFormula === "sum_fields" && (
+                <div className="mt-2 flex flex-wrap gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                  {MARGIN_SUM_FIELD_OPTIONS.map(({ key, label }) => {
+                    const list = settings.report_import_config?.marginSumFields ?? [];
+                    const checked = list.includes(key);
+                    return (
+                      <label key={key} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            const next = checked ? list.filter((x) => x !== key) : [...list, key];
+                            setReportImportConfig({ marginSumFields: next.length ? next : undefined });
+                          }}
+                        />
+                        {label}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "저장 중..." : "저장"}
+            </Button>
           </CardContent>
         </Card>
       )}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { parseTabularRowsToReportEntries } from "@/lib/report-entry-map";
+import { parseTabularRowsToReportEntries, type ReportImportConfig } from "@/lib/report-entry-map";
 import { assertShopInStoreGroup, getAuthContext } from "@/server/auth";
+import { supabaseAdmin } from "@/server/supabase";
 
 export const dynamic = "force-dynamic";
 
@@ -138,7 +139,20 @@ export async function POST(req: NextRequest) {
 
     const csv = await res.text();
     const rows = parseCsv(csv);
-    const { entries, errors } = parseTabularRowsToReportEntries(rows, shopId);
+
+    let importConfig: ReportImportConfig | null = null;
+    const { data: settings } = await supabaseAdmin
+      .from("shop_settings")
+      .select("report_import_config")
+      .eq("shop_id", shopId)
+      .maybeSingle();
+    if (settings?.report_import_config && typeof settings.report_import_config === "object") {
+      importConfig = settings.report_import_config as ReportImportConfig;
+    }
+
+    const { entries, errors } = parseTabularRowsToReportEntries(rows, shopId, {
+      config: importConfig ?? undefined,
+    });
 
     return NextResponse.json(
       {
