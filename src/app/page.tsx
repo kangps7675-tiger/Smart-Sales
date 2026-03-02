@@ -14,7 +14,7 @@
  */
 
 import Link from "next/link";
-import { Cormorant_Garamond, Nanum_Pen_Script } from "next/font/google";
+import { Cormorant_Garamond } from "next/font/google";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NavLinkWithLoading } from "@/components/nav-link-with-loading";
@@ -23,10 +23,35 @@ const logoFont = Cormorant_Garamond({
   weight: "600",
 });
 
-const handwritingFont = Nanum_Pen_Script({
-  subsets: ["latin"],
-  weight: "400",
-});
+interface HandwritingTextProps {
+  text: string;
+  startDelay?: number;
+  className?: string;
+}
+
+function HandwritingText({ text, startDelay = 0, className }: HandwritingTextProps) {
+  const chars = Array.from(text);
+  return (
+    <span
+      className={`handwriting-text ${className ?? ""}`}
+      style={{ ["--handwriting-delay" as string]: `${startDelay}s` }}
+    >
+      {chars.map((ch, index) =>
+        ch === "\n" ? (
+          <br key={index} />
+        ) : (
+          <span
+            key={index}
+            className="handwriting-char"
+            style={{ ["--char-index" as string]: index }}
+          >
+            {ch}
+          </span>
+        ),
+      )}
+    </span>
+  );
+}
 
 export default function LandingPage() {
   return (
@@ -55,24 +80,20 @@ export default function LandingPage() {
       <section className="border-b border-border/40 bg-gradient-to-b from-background to-muted/40 px-4 py-24 sm:py-32 lg:py-36">
         <div className="mx-auto max-w-3xl text-center">
           <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl lg:text-[2.75rem] lg:leading-tight">
-            <span
-              className={`handwriting-text ${handwritingFont.className}`}
-              style={{ ["--handwriting-delay" as string]: "0s" }}
-            >
-              휴대폰 매장 운영,
-              <br />
-              한 화면에서 정리 끝.
-            </span>
+            <HandwritingText
+              text={"휴대폰 매장 운영,\n한 화면에서 정리 끝."}
+              startDelay={0}
+              className="handwriting-hero font-shilla text-4xl sm:text-5xl lg:text-[3.5rem] lg:leading-snug"
+            />
           </h1>
           <p className="mt-6 text-sm text-muted-foreground sm:text-base">
-            <span
-              className={`handwriting-text ${handwritingFont.className}`}
-              style={{ ["--handwriting-delay" as string]: "2.1s" }}
-            >
-              판매일보, 직원·매장 관리, 급여 계산, 정책 단가까지.
-              <br />
-              엑셀 없이도 매일의 숫자를 안전하게 정리해 드립니다.
-            </span>
+            <HandwritingText
+              text={
+                "판매일보, 직원·매장 관리, 급여 계산, 정책 단가까지.\n엑셀 없이도 매일의 숫자를 안전하게 정리해 드립니다."
+              }
+              startDelay={2.1}
+              className="font-soonbatang"
+            />
           </p>
           <div className="mt-10 flex flex-col items-center gap-3">
             <Link href="/login?tab=tenant_signup">
@@ -81,12 +102,11 @@ export default function LandingPage() {
               </Button>
             </Link>
             <span className="text-xs text-muted-foreground sm:text-sm">
-              <span
-                className={`handwriting-text ${handwritingFont.className}`}
-                style={{ ["--handwriting-delay" as string]: "4.3s" }}
-              >
-                설치 없이 바로 웹에서
-              </span>
+              <HandwritingText
+                text={"설치 없이 바로 웹에서"}
+                startDelay={4.3}
+                className="font-soonbatang"
+              />
             </span>
           </div>
         </div>
@@ -100,20 +120,18 @@ export default function LandingPage() {
               매장 운영에 꼭 필요한 기능만
             </p>
             <h2 className="mt-4 text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-              <span
-                className={`handwriting-text ${handwritingFont.className}`}
-                style={{ ["--handwriting-delay" as string]: "6.3s" }}
-              >
-                판매 데이터부터 급여까지, 흐름대로 이어집니다.
-              </span>
+              <HandwritingText
+                text={"판매 데이터부터 급여까지, 흐름대로 이어집니다."}
+                startDelay={6.3}
+                className="font-soonbatang"
+              />
             </h2>
             <p className="text-sm text-muted-foreground">
-              <span
-                className={`handwriting-text ${handwritingFont.className}`}
-                style={{ ["--handwriting-delay" as string]: "8.3s" }}
-              >
-                복잡한 화면 대신, 매일 자주 쓰는 네 가지 기능에 집중했습니다
-              </span>
+              <HandwritingText
+                text={"복잡한 화면 대신, 매일 자주 쓰는 네 가지 기능에 집중했습니다"}
+                startDelay={8.3}
+                className="font-soonbatang"
+              />
             </p>
           </div>
 
