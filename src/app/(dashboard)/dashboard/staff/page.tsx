@@ -58,9 +58,9 @@ export default function StaffPage() {
    * 
    * 선택된 매장에 대한 판매사 초대 코드를 생성하고 표시합니다.
    */
-  const handleCreateInvite = () => {
+  const handleCreateInvite = async () => {
     if (!selectedShopId) return;
-    const inv = useAuthStore.getState().createInvite(selectedShopId);
+    const inv = await useAuthStore.getState().createInvite(selectedShopId);
     if (inv) setNewInvite({ code: inv.code, shopName: inv.shopName });
   };
 
