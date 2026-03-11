@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/server/supabase";
 import type { AuthContext } from "@/server/auth";
-import { assertShopInStoreGroup, getAuthContext } from "@/server/auth";
+import { getAuthContext } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -9,10 +9,6 @@ function getShopScope(auth: AuthContext | null, requestedShopId: string | null) 
   if (!auth) return { allowed: false as const, shopId: null as string | null };
   if (auth.role === "super_admin") {
     return { allowed: true as const, shopId: requestedShopId ?? null };
-  }
-  if (auth.role === "region_manager") {
-    if (!requestedShopId || !auth.storeGroupId) return { allowed: false as const, shopId: null };
-    return { allowed: true as const, shopId: requestedShopId };
   }
   if (auth.role === "tenant_admin" || auth.role === "staff") {
     if (!auth.shopId) return { allowed: false as const, shopId: null };
@@ -34,9 +30,6 @@ export async function GET(req: NextRequest) {
 
     const scope = getShopScope(auth, requestedShopId);
     if (!scope.allowed) {
-      if (auth.role === "region_manager" && !requestedShopId) {
-        return NextResponse.json({ error: "shop_id is required" }, { status: 400 });
-      }
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -87,11 +80,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "shop_id is required" }, { status: 400 });
     }
 
-    if (auth.role === "region_manager") {
-      if (!auth.storeGroupId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      const ok = await assertShopInStoreGroup(shopId, auth.storeGroupId);
-      if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
     if ((auth.role === "tenant_admin" || auth.role === "staff") && auth.shopId !== shopId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -137,6 +125,49 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(data, { status: 201 });
   } catch (err) {
     console.error("Unexpected error in POST /api/crm/consultations", err);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
+// DELETE /api/crm/consultations?shop_id=...
+// 해당 매장의 상담(CRM) 데이터 전부 삭제 (업로드/가져오기한 데이터 포함)
+export async function DELETE(req: NextRequest) {
+  try {
+    const auth = await getAuthContext(req);
+    if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { searchParams } = new URL(req.url);
+    const requestedShopId = searchParams.get("shop_id");
+    if (!requestedShopId) {
+      return NextResponse.json({ error: "shop_id is required" }, { status: 400 });
+    }
+
+    const scope = getShopScope(auth, requestedShopId);
+    if (!scope.allowed || !scope.shopId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const { data: deleted, error } = await supabaseAdmin
+      .from("crm_consultations")
+      .delete()
+      .eq("shop_id", scope.shopId)
+      .select("id");
+
+    if (error) {
+      console.error("Error deleting crm_consultations by shop", error);
+      return NextResponse.json(
+        { error: "Failed to delete consultations" },
+        { status: 500 },
+      );
+    }
+
+    const deletedCount = deleted?.length ?? 0;
+    return NextResponse.json({ deletedCount }, { status: 200 });
+  } catch (err) {
+    console.error("Unexpected error in DELETE /api/crm/consultations", err);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 },

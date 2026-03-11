@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ id: string; commentId: string }> };
 
-// DELETE /api/notices/[id]/comments/[commentId] — 댓글 삭제 (본인 또는 super_admin/region_manager/tenant_admin)
+// DELETE /api/notices/[id]/comments/[commentId] — 댓글 삭제 (본인 또는 super_admin/tenant_admin)
 export async function DELETE(_req: NextRequest, context: RouteContext) {
   try {
     const auth = await getAuthContext(_req);
@@ -33,7 +33,6 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
     const canDelete =
       isOwner ||
       auth.role === "super_admin" ||
-      auth.role === "region_manager" ||
       auth.role === "tenant_admin";
 
     if (!canDelete) {

@@ -9,7 +9,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuthStore } from "@/client/store/useAuthStore";
-import type { Consultation, CrmFormState, CrmSummarySheet, ReportEntry, StatsPayload } from "./crm-types";
+import type { Consultation, CrmFormState, CrmSummarySheet, ReportEntry } from "./crm-types";
 import { INFLOW_OPTIONS, type InflowType } from "./crm-types";
 import { CrmPageView } from "./crm-page-view";
 
@@ -34,14 +34,9 @@ export default function CrmPage() {
   const [reportEntries, setReportEntries] = useState<ReportEntry[]>([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
-  /** 유입/개통 통계 (일별·계·%) */
-  const [statsData, setStatsData] = useState<StatsPayload | null>(null);
-  const [statsLoading, setStatsLoading] = useState(false);
-
   const isSuperAdmin = user?.role === "super_admin";
-  const isRegionManager = user?.role === "region_manager";
   const isBranchUser = user?.role === "tenant_admin" || user?.role === "staff";
-  const canSelectShop = isSuperAdmin || isRegionManager;
+  const canSelectShop = isSuperAdmin;
   const shopId = isBranchUser ? userShopId : ((selectedShopId || userShopId || shops[0]?.id) ?? "");
 
   const fetchList = useCallback(async () => {
@@ -107,26 +102,6 @@ export default function CrmPage() {
       .finally(() => setSummaryLoading(false));
   }, [shopId, summaryMonth]);
 
-  /** 유입/개통 통계 로드 */
-  useEffect(() => {
-    if (!shopId) {
-      setStatsData(null);
-      return;
-    }
-    setStatsLoading(true);
-    fetch(
-      `/api/stats/inflow-activation?shop_id=${encodeURIComponent(shopId)}&month=${encodeURIComponent(summaryMonth)}`,
-      { credentials: "include" }
-    )
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.inflow && data?.activation) setStatsData(data);
-        else setStatsData(null);
-      })
-      .catch(() => setStatsData(null))
-      .finally(() => setStatsLoading(false));
-  }, [shopId, summaryMonth]);
-
   /** 이번 달(선택 월) 상담·예정건 필터 */
   const consultationsInMonth = useMemo(() => {
     const prefix = summaryMonth + "-";
@@ -169,6 +144,16 @@ export default function CrmPage() {
       hasGoal: goal > 0,
     };
   }, [summaryMonth, salesTargetMonthly, reportEntries]);
+
+  const [hasInvitedStaff, setHasInvitedStaff] = useState(false);
+
+  useEffect(() => {
+    if (!shopId || (user?.role !== "tenant_admin" && user?.role !== "super_admin")) return;
+    fetch(`/api/shops/staff?shop_id=${shopId}`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : [])
+      .then((list: unknown[]) => setHasInvitedStaff(list.length > 0))
+      .catch(() => setHasInvitedStaff(false));
+  }, [shopId, user?.role]);
 
   const [form, setForm] = useState<CrmFormState>({
     name: "",
@@ -270,8 +255,6 @@ export default function CrmPage() {
     setSummaryMonth,
     summaryLoading,
     summarySheet,
-    statsLoading,
-    statsData,
     form,
     setForm,
     submitConsultation,
@@ -284,5 +267,7 @@ export default function CrmPage() {
     moveToReport,
     consultationsInMonth,
     pendingInMonth,
+    onImportSuccess: fetchList,
+    hasInvitedStaff,
   });
 }

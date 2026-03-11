@@ -1,17 +1,20 @@
 "use client";
 
+import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CrmExcelUpload } from "@/components/reports/crm-excel-upload";
+import { CrmUploadDropdown } from "@/components/reports/crm-upload-dropdown";
 import {
   INFLOW_OPTIONS,
-  type InflowType,
   type Consultation,
-  type StatsPayload,
   type CrmSummarySheet,
   type CrmFormState,
 } from "./crm-types";
+
+const CONSULTATIONS_PER_PAGE = 50;
 
 export type CrmPageViewProps = {
   error: string | null;
@@ -24,8 +27,6 @@ export type CrmPageViewProps = {
   setSummaryMonth: React.Dispatch<React.SetStateAction<string>>;
   summaryLoading: boolean;
   summarySheet: CrmSummarySheet;
-  statsLoading: boolean;
-  statsData: StatsPayload | null;
   form: CrmFormState;
   setForm: React.Dispatch<React.SetStateAction<CrmFormState>>;
   submitConsultation: () => void | Promise<void>;
@@ -38,10 +39,77 @@ export type CrmPageViewProps = {
   moveToReport: (id: string) => void | Promise<void>;
   consultationsInMonth: Consultation[];
   pendingInMonth: Consultation[];
+  /** 상담 파일 가져오기 성공 시 목록 새로고침 */
+  onImportSuccess?: () => void;
+  /** 초대된 판매사가 있는지 여부 */
+  hasInvitedStaff?: boolean;
 };
 
 export function CrmPageView(props: CrmPageViewProps) {
-  const hasGoal = props.summarySheet.goal > 0;
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
+
+  const totalPages = Math.max(1, Math.ceil(props.consultations.length / CONSULTATIONS_PER_PAGE));
+  const pageConsultations = useMemo(
+    () =>
+      props.consultations.slice(
+        (page - 1) * CONSULTATIONS_PER_PAGE,
+        page * CONSULTATIONS_PER_PAGE
+      ),
+    [props.consultations, page]
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [props.consultations.length, props.filterStatus]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const selectAllOnPage = () => {
+    const ids = pageConsultations.map((c) => c.id);
+    setSelectedIds((prev) => Array.from(new Set([...prev, ...ids])));
+    };
+  const clearSelection = () => setSelectedIds([]);
+  const toggleOne = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+  const allOnPageSelected =
+    pageConsultations.length > 0 &&
+    pageConsultations.every((c) => selectedIds.includes(c.id));
+  const someOnPageSelected = pageConsultations.some((c) => selectedIds.includes(c.id));
+
+  const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const el = selectAllCheckboxRef.current;
+    if (el) el.indeterminate = someOnPageSelected && !allOnPageSelected;
+  }, [someOnPageSelected, allOnPageSelected]);
+
+  /** 페이지네이션에 표시할 번호들 (많을 때는 현재 주변 + 처음/끝) */
+  const paginationNumbers = useMemo(() => {
+    const maxVisible = 9;
+    if (totalPages <= maxVisible) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const result: (number | "ellipsis")[] = [];
+    const half = Math.floor(maxVisible / 2);
+    let start = Math.max(1, page - half);
+    let end = Math.min(totalPages, start + maxVisible - 1);
+    if (end - start + 1 < maxVisible) start = Math.max(1, end - maxVisible + 1);
+    if (start > 1) {
+      result.push(1);
+      if (start > 2) result.push("ellipsis");
+    }
+    for (let i = start; i <= end; i++) result.push(i);
+    if (end < totalPages) {
+      if (end < totalPages - 1) result.push("ellipsis");
+      result.push(totalPages);
+    }
+    return result;
+  }, [totalPages, page]);
 
   return (
     <div className="space-y-8">
@@ -73,134 +141,20 @@ export function CrmPageView(props: CrmPageViewProps) {
       )}
 
       {props.shopId && (
-        <>
-          <Card className="border-border/50 shadow-sm">
-            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-4 space-y-0">
-              <div>
-                <CardTitle className="text-base">월별 요약</CardTitle>
-                <CardDescription>
-                  목표 대비 실적, 잔여, 일평균 목표·실적입니다. 월 목표는 매장 설정에서 입력합니다.
-                </CardDescription>
-              </div>
-              <Input
-                type="month"
-                value={props.summaryMonth}
-                onChange={(e) => props.setSummaryMonth(e.target.value)}
-                className="w-40"
-              />
-            </CardHeader>
-            <CardContent>
-              {props.summaryLoading ? (
-                <p className="text-sm text-muted-foreground">불러오는 중…</p>
-              ) : (
-                <>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-border/50">
-                          <th className="pb-2 text-left font-medium text-muted-foreground">목표(건)</th>
-                          <th className="pb-2 text-right font-medium text-muted-foreground">실적(건)</th>
-                          <th className="pb-2 text-right font-medium text-muted-foreground">잔여(건)</th>
-                          <th className="pb-2 text-right font-medium text-muted-foreground">일평균 목표</th>
-                          <th className="pb-2 text-right font-medium text-muted-foreground">일평균 실적</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="border-b border-border/30">
-                          <td className="py-2 tabular-nums">
-                            {hasGoal ? `${props.summarySheet.goal}건` : "—"}
-                          </td>
-                          <td className="py-2 text-right tabular-nums">{props.summarySheet.actual}건</td>
-                          <td className="py-2 text-right tabular-nums">
-                            {hasGoal ? `${props.summarySheet.remain}건` : "—"}
-                          </td>
-                          <td className="py-2 text-right tabular-nums">
-                            {hasGoal ? `${props.summarySheet.avgGoalPerDay.toFixed(1)}건` : "—"}
-                          </td>
-                          <td className="py-2 text-right tabular-nums">
-                            {props.summarySheet.avgActualPerDay.toFixed(1)}건
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {props.summaryMonth.slice(0, 4)}년 {props.summaryMonth.slice(5, 7)}월 기준 · 경과 {props.summarySheet.elapsedDays}일 / {props.summarySheet.daysInMonth}일
-                  </p>
-                </>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/50 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base">유입/개통 통계</CardTitle>
+        <Card className="border-border/50 shadow-sm">
+          <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-4 space-y-0">
+            <div>
+              <CardTitle className="text-base">파일에서 고객 데이터 가져오기</CardTitle>
               <CardDescription>
-                선택 월의 상담 유입·개통(판매일보) 건수입니다.
+                엑셀/CSV 고객 명부를 업로드하면 상담(CRM)으로 등록됩니다. 개통(O)으로 표시한 건만 판매일보로 이동할 수 있습니다.
               </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {props.statsLoading ? (
-                <p className="text-sm text-muted-foreground">불러오는 중…</p>
-              ) : props.statsData ? (
-                <div className="space-y-4">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-border/50">
-                          <th className="pb-2 text-left font-medium text-muted-foreground">유입</th>
-                          <th className="pb-2 text-right font-medium text-muted-foreground">건수</th>
-                          <th className="pb-2 text-right font-medium text-muted-foreground">비율</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {props.statsData.inflow.rows.map((r) => (
-                          <tr key={r.label} className="border-b border-border/30">
-                            <td className="py-2">{r.label}</td>
-                            <td className="py-2 text-right tabular-nums">{r.total}</td>
-                            <td className="py-2 text-right tabular-nums">{r.percent}%</td>
-                          </tr>
-                        ))}
-                        <tr className="border-b border-border/30 font-medium">
-                          <td className="py-2">합계</td>
-                          <td className="py-2 text-right tabular-nums">{props.statsData.inflow.totalRow.total}</td>
-                          <td className="py-2 text-right tabular-nums">100%</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-border/50">
-                          <th className="pb-2 text-left font-medium text-muted-foreground">개통</th>
-                          <th className="pb-2 text-right font-medium text-muted-foreground">건수</th>
-                          <th className="pb-2 text-right font-medium text-muted-foreground">비율</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {props.statsData.activation.rows.map((r) => (
-                          <tr key={r.label} className="border-b border-border/30">
-                            <td className="py-2">{r.label}</td>
-                            <td className="py-2 text-right tabular-nums">{r.total}</td>
-                            <td className="py-2 text-right tabular-nums">{r.percent}%</td>
-                          </tr>
-                        ))}
-                        <tr className="border-b border-border/30 font-medium">
-                          <td className="py-2">합계</td>
-                          <td className="py-2 text-right tabular-nums">{props.statsData.activation.totalRow.total}</td>
-                          <td className="py-2 text-right tabular-nums">100%</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">데이터가 없습니다.</p>
-              )}
-            </CardContent>
-          </Card>
-        </>
+            </div>
+            <CrmUploadDropdown shopId={props.shopId} onSuccess={props.onImportSuccess} />
+          </CardHeader>
+          <CardContent>
+            <CrmExcelUpload shopId={props.shopId} onSuccess={props.onImportSuccess} />
+          </CardContent>
+        </Card>
       )}
 
       <Card className="border-border/50 shadow-sm">
@@ -246,14 +200,16 @@ export function CrmPageView(props: CrmPageViewProps) {
             </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">담당</label>
-              <Input
-                value={props.form.sales_person}
-                onChange={(e) => props.setForm((prev) => ({ ...prev, sales_person: e.target.value }))}
-                placeholder="담당자"
-              />
-            </div>
+            {props.hasInvitedStaff && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">담당</label>
+                <Input
+                  value={props.form.sales_person}
+                  onChange={(e) => props.setForm((prev) => ({ ...prev, sales_person: e.target.value }))}
+                  placeholder="담당자"
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <label className="text-sm font-medium">유입</label>
               <select
@@ -306,7 +262,7 @@ export function CrmPageView(props: CrmPageViewProps) {
               개통여부(O/△/X)를 변경하거나, O인 경우 판매일보로 이동할 수 있습니다.
             </CardDescription>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <label className="text-sm text-muted-foreground">개통여부</label>
             <select
               value={props.filterStatus}
@@ -318,6 +274,22 @@ export function CrmPageView(props: CrmPageViewProps) {
               <option value="△">△</option>
               <option value="X">X</option>
             </select>
+            {props.consultations.length > 0 && (
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={selectAllOnPage}>
+                  전체선택
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={clearSelection}
+                  disabled={selectedIds.length === 0}
+                >
+                  선택해제
+                </Button>
+              </>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -328,63 +300,114 @@ export function CrmPageView(props: CrmPageViewProps) {
           ) : props.consultations.length === 0 ? (
             <p className="text-sm text-muted-foreground">상담이 없습니다.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-sm">
-                <thead className="border-b border-border/60 bg-muted/60">
-                  <tr>
-                    <th className="px-3 py-2 font-medium text-muted-foreground">고객명</th>
-                    <th className="px-3 py-2 font-medium text-muted-foreground">연락처</th>
-                    <th className="px-3 py-2 font-medium text-muted-foreground">상담일</th>
-                    <th className="px-3 py-2 font-medium text-muted-foreground">유입</th>
-                    <th className="px-3 py-2 font-medium text-muted-foreground">담당</th>
-                    <th className="px-3 py-2 font-medium text-muted-foreground">개통여부</th>
-                    <th className="px-3 py-2 font-medium text-muted-foreground">동작</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {props.consultations.map((c) => (
-                    <tr key={c.id} className="border-b border-border/40 hover:bg-muted/30">
-                      <td className="px-3 py-2">{c.name}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{c.phone ?? "—"}</td>
-                      <td className="px-3 py-2 tabular-nums">{c.consultation_date?.slice(0, 10) ?? "—"}</td>
-                      <td className="px-3 py-2 text-muted-foreground">{c.inflow_type ?? "—"}</td>
-                      <td className="px-3 py-2 text-muted-foreground">{c.sales_person ?? "—"}</td>
-                      <td className="px-3 py-2">
-                        <div className="flex gap-1">
-                          {(["O", "△", "X"] as const).map((status) => (
-                            <Button
-                              key={status}
-                              type="button"
-                              variant={c.activation_status === status ? "default" : "outline"}
-                              size="sm"
-                              className="min-w-8"
-                              onClick={() => props.updateStatus(c.id, status)}
-                            >
-                              {status}
-                            </Button>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2">
-                        {c.activation_status === "O" && !c.report_id && (
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => props.moveToReport(c.id)}
-                          >
-                            판매일보 이동
-                          </Button>
-                        )}
-                        {c.report_id && (
-                          <span className="text-xs text-muted-foreground">이동 완료</span>
-                        )}
-                      </td>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                  <thead className="border-b border-border/60 bg-muted/60">
+                    <tr>
+                      <th className="w-10 px-2 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          ref={selectAllCheckboxRef}
+                          checked={allOnPageSelected}
+                          onChange={() =>
+                            allOnPageSelected
+                              ? setSelectedIds((prev) => prev.filter((id) => !pageConsultations.some((c) => c.id === id)))
+                              : selectAllOnPage()
+                          }
+                          className="h-4 w-4 rounded border-input"
+                          aria-label="현재 페이지 전체선택"
+                        />
+                      </th>
+                      <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground [writing-mode:horizontal-tb] [text-orientation:mixed]">고객명</th>
+                      <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground [writing-mode:horizontal-tb] [text-orientation:mixed]">연락처</th>
+                      <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground [writing-mode:horizontal-tb] [text-orientation:mixed]">상담일</th>
+                      <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground [writing-mode:horizontal-tb] [text-orientation:mixed]">유입</th>
+                      {props.hasInvitedStaff && <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground [writing-mode:horizontal-tb] [text-orientation:mixed]">담당</th>}
+                      <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground [writing-mode:horizontal-tb] [text-orientation:mixed]">개통여부</th>
+                      <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground [writing-mode:horizontal-tb] [text-orientation:mixed]">동작</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {pageConsultations.map((c) => (
+                      <tr key={c.id} className="border-b border-border/40 hover:bg-muted/30">
+                        <td className="w-10 px-2 py-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.includes(c.id)}
+                            onChange={() => toggleOne(c.id)}
+                            className="h-4 w-4 rounded border-input"
+                            aria-label={`${c.name} 선택`}
+                          />
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2">{c.name}</td>
+                        <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{c.phone ?? "—"}</td>
+                        <td className="whitespace-nowrap px-3 py-2 tabular-nums">{c.consultation_date?.slice(0, 10) ?? "—"}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{c.inflow_type ?? "—"}</td>
+                        {props.hasInvitedStaff && <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{c.sales_person ?? "—"}</td>}
+                        <td className="whitespace-nowrap px-3 py-2">
+                          <div className="flex gap-1">
+                            {(["O", "△", "X"] as const).map((status) => (
+                              <Button
+                                key={status}
+                                type="button"
+                                variant={c.activation_status === status ? "default" : "outline"}
+                                size="sm"
+                                className="min-w-8"
+                                onClick={() => props.updateStatus(c.id, status)}
+                              >
+                                {status}
+                              </Button>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2">
+                          {c.activation_status === "O" && !c.report_id && (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => props.moveToReport(c.id)}
+                            >
+                              판매일보 이동
+                            </Button>
+                          )}
+                          {c.report_id && (
+                            <span className="text-xs text-muted-foreground">이동 완료</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-4">
+                <p className="text-sm text-muted-foreground">
+                  {(page - 1) * CONSULTATIONS_PER_PAGE + 1}–
+                  {Math.min(page * CONSULTATIONS_PER_PAGE, props.consultations.length)} / {props.consultations.length}건
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-1">
+                  {paginationNumbers.map((p, idx) =>
+                    p === "ellipsis" ? (
+                      <span key={`ellipsis-${idx}`} className="px-1 text-sm text-muted-foreground">
+                        …
+                      </span>
+                    ) : (
+                      <Button
+                        key={p}
+                        type="button"
+                        variant={p === page ? "default" : "outline"}
+                        size="sm"
+                        className="min-w-[2rem]"
+                        onClick={() => setPage(p)}
+                      >
+                        {p}
+                      </Button>
+                    )
+                  )}
+                </div>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

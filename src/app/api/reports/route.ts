@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/server/supabase";
-import { assertShopInStoreGroup, getAuthContext } from "@/server/auth";
+import { getAuthContext } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -21,43 +21,95 @@ function getShopIdFromRow(row: ReportRow) {
   return (row.shop_id ?? row.shopId ?? null) as string | null;
 }
 
+const CAMEL_TO_SNAKE: Record<string, string> = {
+  shopId: "shop_id",
+  birthDate: "birth_date",
+  saleDate: "sale_date",
+  productName: "product_name",
+  existingCarrier: "existing_carrier",
+  salesPerson: "sales_person",
+  planName: "plan_name",
+  supportAmount: "support_amount",
+  factoryPrice: "factory_price",
+  officialSubsidy: "official_subsidy",
+  installmentPrincipal: "installment_principal",
+  installmentMonths: "installment_months",
+  faceAmount: "face_amount",
+  verbalA: "verbal_a",
+  verbalB: "verbal_b",
+  verbalC: "verbal_c",
+  verbalD: "verbal_d",
+  verbalE: "verbal_e",
+  verbalF: "verbal_f",
+  activationTime: "activation_time",
+  inspectionStore: "inspection_store",
+  inspectionOffice: "inspection_office",
+  lineType: "line_type",
+  saleType: "sale_type",
+  serialNumber: "serial_number",
+  additionalDiscountIds: "additional_discount_ids",
+  additionalDiscountAmount: "additional_discount_amount",
+  uploadedAt: "uploaded_at",
+};
+
+const SNAKE_TO_CAMEL: Record<string, string> = Object.fromEntries(
+  Object.entries(CAMEL_TO_SNAKE).map(([camel, snake]) => [snake, camel])
+);
+
+function normalizeBirthDate(val: unknown): string | null {
+  const raw = String(val ?? "").trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  if (/^\d{6}$/.test(raw)) {
+    const yy = parseInt(raw.slice(0, 2), 10);
+    const fullYear = yy > 30 ? 1900 + yy : 2000 + yy;
+    return `${fullYear}-${raw.slice(2, 4)}-${raw.slice(4, 6)}`;
+  }
+  if (/^\d{8}$/.test(raw)) return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+  return raw;
+}
+
 /** 클라이언트(camelCase) → DB(snake_case) 변환. insert 시 사용 */
 function reportRowToDbRow(row: Record<string, unknown>): Record<string, unknown> {
-  const map: Record<string, string> = {
-    shopId: "shop_id",
-    birthDate: "birth_date",
-    saleDate: "sale_date",
-    productName: "product_name",
-    existingCarrier: "existing_carrier",
-    salesPerson: "sales_person",
-    planName: "plan_name",
-    supportAmount: "support_amount",
-    factoryPrice: "factory_price",
-    officialSubsidy: "official_subsidy",
-    installmentPrincipal: "installment_principal",
-    installmentMonths: "installment_months",
-    faceAmount: "face_amount",
-    verbalA: "verbal_a",
-    verbalB: "verbal_b",
-    verbalC: "verbal_c",
-    verbalD: "verbal_d",
-    verbalE: "verbal_e",
-    verbalF: "verbal_f",
-    activationTime: "activation_time",
-    inspectionStore: "inspection_store",
-    inspectionOffice: "inspection_office",
-    lineType: "line_type",
-    saleType: "sale_type",
-    serialNumber: "serial_number",
-  };
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(row)) {
     if (k === "id" || k === "uploadedAt") continue;
-    const dbKey = map[k] ?? k;
-    if (v !== undefined && v !== null) out[dbKey] = v;
+    const dbKey = CAMEL_TO_SNAKE[k] ?? k;
+    if (v === undefined || v === null) continue;
+    if (k === "additionalDiscountIds") {
+      out[dbKey] = Array.isArray(v) ? v : [];
+      continue;
+    }
+    if (dbKey === "birth_date") {
+      out[dbKey] = normalizeBirthDate(v);
+      continue;
+    }
+    out[dbKey] = v;
   }
   if (row.shop_id !== undefined) out.shop_id = row.shop_id;
   if (row.shopId !== undefined && out.shop_id === undefined) out.shop_id = row.shopId;
+  return out;
+}
+
+/** DB(snake_case) → 클라이언트(camelCase) 변환. select 결과 정규화 */
+function dbRowToClientRow(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row)) {
+    const camelKey = SNAKE_TO_CAMEL[k] ?? k;
+    out[camelKey] = v;
+  }
+  if (out.additionalDiscountIds === undefined) {
+    out.additionalDiscountIds = Array.isArray(row.additional_discount_ids)
+      ? row.additional_discount_ids
+      : [];
+  }
+  if (out.additionalDiscountAmount === undefined) {
+    out.additionalDiscountAmount = 0;
+  }
+  out.additionalDiscountAmount = Number(out.additionalDiscountAmount) || 0;
+  const sid = (out.shopId ?? out.shop_id ?? null) as string | null;
+  out.shopId = sid;
+  out.shop_id = sid;
   return out;
 }
 
@@ -74,39 +126,6 @@ export async function GET(req: NextRequest) {
 
     if (auth.role === "super_admin") {
       shopIdFilter = requestedShopId ? String(requestedShopId).trim() : null;
-    } else if (auth.role === "region_manager") {
-      if (!auth.storeGroupId) {
-        return NextResponse.json({ error: "Managed store group is not set" }, { status: 403 });
-      }
-      if (requestedShopId) {
-        const ok = await assertShopInStoreGroup(requestedShopId, auth.storeGroupId);
-        if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-        shopIdFilter = requestedShopId;
-      } else {
-        // shop_id 없음: 담당 지점 전체 매장의 reports 반환 (지점 내 랭킹 등용)
-        const { data: shopRows } = await supabaseAdmin
-          .from("shops")
-          .select("id")
-          .eq("store_group_id", auth.storeGroupId);
-        const shopIds = (shopRows ?? []).map((r: { id: string }) => r.id);
-        if (shopIds.length === 0) {
-          return NextResponse.json([], { status: 200 });
-        }
-        const { data: reportData, error: reportError } = await supabaseAdmin
-          .from("reports")
-          .select("*")
-          .in("shop_id", shopIds);
-        if (reportError) {
-          console.error("Error fetching reports by store group", reportError);
-          return NextResponse.json({ error: "Failed to fetch reports" }, { status: 500 });
-        }
-        const normalized = (reportData ?? []).map((r: any) => {
-          const sid = (r?.shopId ?? r?.shop_id ?? null) as string | null;
-          if (!sid) return r;
-          return { ...r, shopId: r.shopId ?? sid, shop_id: r.shop_id ?? sid };
-        });
-        return NextResponse.json(normalized, { status: 200 });
-      }
     } else {
       // tenant_admin / staff
       if (!auth.shopId) return NextResponse.json({ error: "Shop is not set" }, { status: 403 });
@@ -126,11 +145,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Failed to fetch reports" }, { status: 500 });
     }
 
-    const normalized = (data ?? []).map((r: any) => {
-      const sid = (r?.shopId ?? r?.shop_id ?? null) as string | null;
-      if (!sid) return r;
-      return { ...r, shopId: r.shopId ?? sid, shop_id: r.shop_id ?? sid };
-    });
+    const normalized = (data ?? []).map((r: Record<string, unknown>) => dbRowToClientRow(r));
 
     return NextResponse.json(normalized, { status: 200 });
   } catch (err) {
@@ -160,12 +175,6 @@ export async function POST(req: NextRequest) {
     const requestedShopId = getShopIdFromRow(reports[0] as ReportRow);
     if (!requestedShopId) {
       return NextResponse.json({ error: "shop_id is required" }, { status: 400 });
-    }
-
-    if (auth.role === "region_manager") {
-      if (!auth.storeGroupId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      const ok = await assertShopInStoreGroup(requestedShopId, auth.storeGroupId);
-      if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     if ((auth.role === "tenant_admin" || auth.role === "staff") && auth.shopId !== requestedShopId) {
@@ -255,51 +264,84 @@ export async function POST(req: NextRequest) {
 }
 
 // DELETE /api/reports
-// body: { id: string }
+// body: { id: string } 또는 { shop_id: string }
 export async function DELETE(req: NextRequest) {
   try {
     const auth = await getAuthContext(req);
     if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { id } = await req.json();
+    const body = await req.json();
+    const { id, shop_id } = body as { id?: string; shop_id?: string };
 
-    if (!id) {
+    if (!id && !shop_id) {
       return NextResponse.json(
-        { error: 'id is required' },
+        { error: 'id or shop_id is required' },
         { status: 400 },
       );
     }
 
-    // 삭제 권한: 해당 shop 스코프 내에서만
-    const { data: existing } = await supabaseAdmin
-      .from("reports")
-      .select("id, shop_id")
-      .eq("id", id)
-      .maybeSingle();
+    // 단건 삭제: 기존 로직 유지
+    if (id) {
+      // 삭제 권한: 해당 shop 스코프 내에서만
+      const { data: existing } = await supabaseAdmin
+        .from("reports")
+        .select("id, shop_id")
+        .eq("id", id)
+        .maybeSingle();
 
-    const existingShopId = (existing as any)?.shop_id as string | null;
-    if (!existingShopId) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      const existingShopId = (existing as any)?.shop_id as string | null;
+      if (!existingShopId) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    if (auth.role === "region_manager") {
-      if (!auth.storeGroupId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      const ok = await assertShopInStoreGroup(existingShopId, auth.storeGroupId);
-      if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      if ((auth.role === "tenant_admin" || auth.role === "staff") && auth.shopId !== existingShopId) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      const { error } = await supabaseAdmin.from("reports").delete().eq("id", id);
+
+      if (error) {
+        console.error('Error deleting report', error);
+        return NextResponse.json(
+          { error: 'Failed to delete report' },
+          { status: 500 },
+        );
+      }
+
+      return NextResponse.json({ success: true }, { status: 200 });
     }
-    if ((auth.role === "tenant_admin" || auth.role === "staff") && auth.shopId !== existingShopId) {
+
+    // shop_id 단위 전체 삭제 (한 매장의 업로드를 한 번에 비우고 싶을 때 사용)
+    const targetShopId = String(shop_id);
+
+    if ((auth.role === "tenant_admin" || auth.role === "staff") && auth.shopId !== targetShopId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { error } = await supabaseAdmin.from("reports").delete().eq("id", id);
+    const { error: reportsError } = await supabaseAdmin
+      .from("reports")
+      .delete()
+      .eq("shop_id", targetShopId);
 
-    if (error) {
-      console.error('Error deleting report', error);
+    const { error: uploadsError } = await supabaseAdmin
+      .from("report_uploads")
+      .delete()
+      .eq("shop_id", targetShopId);
+
+    if (reportsError || uploadsError) {
+      console.error("Error deleting reports/report_uploads by shop_id", {
+        targetShopId,
+        reportsError,
+        uploadsError,
+      });
       return NextResponse.json(
-        { error: 'Failed to delete report' },
+        { error: "Failed to delete reports or upload records by shop_id" },
         { status: 500 },
       );
     }
 
-    return NextResponse.json({ success: true }, { status: 200 });
+    return NextResponse.json(
+      { success: true, clearedShopId: targetShopId },
+      { status: 200 },
+    );
   } catch (err) {
     console.error('Unexpected error in DELETE /api/reports', err);
     return NextResponse.json(
@@ -334,19 +376,31 @@ export async function PATCH(req: NextRequest) {
     const existingShopId = (existing as any)?.shop_id as string | null;
     if (!existingShopId) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    if (auth.role === "region_manager") {
-      if (!auth.storeGroupId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      const ok = await assertShopInStoreGroup(existingShopId, auth.storeGroupId);
-      if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
     if ((auth.role === "tenant_admin" || auth.role === "staff") && auth.shopId !== existingShopId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // shop_id 변경은 금지
-    const safeUpdates = { ...(updates as Record<string, unknown>) } as Record<string, unknown>;
-    delete (safeUpdates as any).shop_id;
-    delete (safeUpdates as any).shopId;
+    // shop_id 변경은 금지, camelCase → snake_case
+    const allowedKeys: Record<string, string> = {
+      name: "name", phone: "phone", birthDate: "birth_date", saleDate: "sale_date",
+      productName: "product_name", existingCarrier: "existing_carrier", amount: "amount", margin: "margin",
+      salesPerson: "sales_person", planName: "plan_name", supportAmount: "support_amount",
+      additionalDiscountIds: "additional_discount_ids", additionalDiscountAmount: "additional_discount_amount",
+      address: "address", path: "path", factoryPrice: "factory_price", officialSubsidy: "official_subsidy",
+      installmentPrincipal: "installment_principal", installmentMonths: "installment_months",
+      faceAmount: "face_amount", verbalA: "verbal_a", verbalB: "verbal_b", verbalC: "verbal_c",
+      verbalD: "verbal_d", verbalE: "verbal_e", verbalF: "verbal_f",
+      serialNumber: "serial_number", lineType: "line_type", saleType: "sale_type",
+      activationTime: "activation_time", inspectionStore: "inspection_store", inspectionOffice: "inspection_office",
+    };
+    const raw = updates as Record<string, unknown>;
+    const safeUpdates: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (k === "shop_id" || k === "shopId" || k === "id" || k === "uploadedAt") continue;
+      const dbKey = allowedKeys[k] ?? k;
+      if (v === undefined) continue;
+      safeUpdates[dbKey] = k === "additionalDiscountIds" ? (Array.isArray(v) ? v : []) : v;
+    }
 
     const { data, error } = await supabaseAdmin
       .from("reports")
@@ -363,7 +417,8 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    return NextResponse.json(data, { status: 200 });
+    const out = dbRowToClientRow(data as Record<string, unknown>);
+    return NextResponse.json(out, { status: 200 });
   } catch (err) {
     console.error('Unexpected error in PATCH /api/reports', err);
     return NextResponse.json(

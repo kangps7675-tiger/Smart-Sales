@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/server/supabase";
-import { assertShopInStoreGroup, getAuthContext } from "@/server/auth";
+import { getAuthContext } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/shop-settings?shop_id=...
- * 헤더: x-user-role, x-user-shop-id, x-store-group-id (지점장일 때)
  */
 export async function GET(req: NextRequest) {
   try {
@@ -23,11 +22,6 @@ export async function GET(req: NextRequest) {
 
     if (auth.role === "staff") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (auth.role === "tenant_admin" && auth.shopId !== shopId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    if (auth.role === "region_manager") {
-      if (!auth.storeGroupId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      const ok = await assertShopInStoreGroup(shopId, auth.storeGroupId);
-      if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
 
     const { data, error } = await supabaseAdmin
       .from('shop_settings')
@@ -117,11 +111,6 @@ export async function PATCH(req: NextRequest) {
 
     if (auth.role === "tenant_admin" && auth.shopId !== shopId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    if (auth.role === "region_manager") {
-      if (!auth.storeGroupId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      const ok = await assertShopInStoreGroup(shopId, auth.storeGroupId);
-      if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const { data: existing } = await supabaseAdmin

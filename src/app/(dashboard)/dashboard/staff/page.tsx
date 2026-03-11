@@ -7,7 +7,6 @@
  *
  * 접근 권한:
  * - tenant_admin: 본인 매장만
- * - region_manager: 담당 지점 매장만
  * - super_admin: 모든 매장
  *
  * @file page.tsx
@@ -43,7 +42,7 @@ export default function StaffPage() {
   const [selectedShopId, setSelectedShopId] = useState<string | null>(null);
   const [newInvite, setNewInvite] = useState<{ code: string; shopName: string } | null>(null);
 
-  const canManage = user?.role === "tenant_admin" || user?.role === "super_admin" || user?.role === "region_manager";
+  const canManage = user?.role === "tenant_admin" || user?.role === "super_admin";
 
   useEffect(() => {
     if (!user) router.replace("/login");
@@ -85,7 +84,7 @@ export default function StaffPage() {
         <p className="mt-2 text-muted-foreground">초대 코드를 발급해 판매사가 가입할 수 있게 하세요.</p>
       </div>
 
-      {(user.role === "super_admin" || user.role === "region_manager") && shops.length > 1 && (
+      {user.role === "super_admin" && shops.length > 1 && (
         <Card className="border-border/80">
           <CardContent className="pt-6">
             <label className="text-sm font-medium">매장 선택</label>

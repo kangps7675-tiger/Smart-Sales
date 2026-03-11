@@ -15,9 +15,6 @@ export async function POST(req: NextRequest) {
       shop_code,
       shop_name,
       super_admin_signup_password,
-      managed_store_group_id,
-      region_manager_signup_password,
-      store_group_name,
     } = body;
 
     if (!login_id || !password || !name || !role) {
@@ -49,26 +46,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (roleLower === 'region_manager') {
-      const envPassword = process.env.REGION_MANAGER_SIGNUP_PASSWORD;
-      if (!envPassword) {
-        console.error('REGION_MANAGER_SIGNUP_PASSWORD is not set');
-        return NextResponse.json(
-          { error: 'Region manager signup is not configured' },
-          { status: 503 },
-        );
-      }
-      const secret = region_manager_signup_password ?? '';
-      if (secret !== envPassword) {
-        return NextResponse.json(
-          { error: 'Invalid region manager signup password' },
-          { status: 403 },
-        );
-      }
-    }
-
     let shop_id: string | null = null;
-    let stored_managed_store_group_id: string | null = null;
 
     if (roleLower === 'tenant_admin') {
       const shopName = shop_name != null ? String(shop_name).trim() : '';
@@ -91,33 +69,6 @@ export async function POST(req: NextRequest) {
         );
       }
       shop_id = newShop?.id ?? null;
-    }
-
-    if (roleLower === 'region_manager') {
-      if (managed_store_group_id && String(managed_store_group_id).trim() !== '') {
-        stored_managed_store_group_id = String(managed_store_group_id).trim();
-      } else {
-        const groupName = store_group_name != null ? String(store_group_name).trim() : '';
-        if (!groupName) {
-          return NextResponse.json(
-            { error: 'store_group_name is required for region_manager signup' },
-            { status: 400 },
-          );
-        }
-        const { data: newGroup, error: groupError } = await supabaseAdmin
-          .from('store_groups')
-          .insert({ name: groupName })
-          .select('id')
-          .single();
-        if (groupError) {
-          console.error('Error creating store_group', groupError);
-          return NextResponse.json(
-            { error: 'Failed to create store group' },
-            { status: 500 },
-          );
-        }
-        stored_managed_store_group_id = (newGroup as { id?: string | null } | null)?.id ?? null;
-      }
     }
 
     if (roleLower === 'staff') {
@@ -159,14 +110,11 @@ export async function POST(req: NextRequest) {
       role: roleLower,
       shop_id,
     };
-    if (stored_managed_store_group_id) {
-      insertPayload.managed_store_group_id = stored_managed_store_group_id;
-    }
 
     const { data: inserted, error } = await supabaseAdmin
       .from('profiles')
       .insert(insertPayload)
-      .select('id, name, role, shop_id, managed_store_group_id')
+      .select('id, name, role, shop_id')
       .single();
 
     if (error) {
@@ -183,14 +131,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const profile = inserted as { id: string; name: string | null; role: string; shop_id: string | null; managed_store_group_id?: string | null };
+    const profile = inserted as { id: string; name: string | null; role: string; shop_id: string | null };
     return NextResponse.json(
       {
         id: profile.id,
         name: profile.name,
         role: profile.role,
         shop_id: profile.shop_id,
-        store_group_id: profile.managed_store_group_id ?? null,
       },
       { status: 201 },
     );

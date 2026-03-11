@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/server/supabase';
-import { assertShopInStoreGroup, getAuthContext } from '@/server/auth';
+import { getAuthContext } from '@/server/auth';
 
 export const dynamic = "force-dynamic";
 
@@ -34,11 +34,6 @@ export async function POST(req: NextRequest) {
     }
 
     const targetShopId = String(shop_id);
-    if (auth.role === "region_manager") {
-      if (!auth.storeGroupId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      const ok = await assertShopInStoreGroup(targetShopId, auth.storeGroupId);
-      if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
     if ((auth.role === "tenant_admin" || auth.role === "staff") && auth.shopId !== targetShopId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

@@ -23,7 +23,7 @@ export default function SettingsPage() {
   const user = useAuthStore((s) => s.user);
   const getShopsForCurrentUser = useAuthStore((s) => s.getShopsForCurrentUser);
   const shops = getShopsForCurrentUser();
-  const canManageShop = user?.role === "tenant_admin" || user?.role === "super_admin" || user?.role === "region_manager";
+  const canManageShop = user?.role === "tenant_admin" || user?.role === "super_admin";
 
   return (
     <div className="space-y-6">

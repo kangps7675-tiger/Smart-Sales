@@ -17,7 +17,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Cormorant_Garamond } from "next/font/google";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuthStore, ROLE_LABEL } from "@/client/store/useAuthStore";
-import { getNavItemsForRole } from "@/lib/rbac";
+import { getNavItemsForRole, type NavGroup } from "@/lib/rbac";
 import { startNavigation } from "@/components/navigation-loading";
 import { cn } from "@/lib/utils";
 
@@ -58,28 +58,74 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col bg-background sm:flex-row" suppressHydrationWarning>
-      <aside className="flex w-full flex-col border-b border-border/60 bg-sidebar sm:h-screen sm:w-56 sm:border-b-0 sm:border-r">
+      <aside className="flex w-full flex-col border-b border-border/60 bg-sidebar sm:sticky sm:top-0 sm:h-screen sm:w-56 sm:border-b-0 sm:border-r">
         <div className="flex h-14 items-center gap-2 border-b border-border/60 px-4 sm:px-4">
           <Link href="/dashboard" className="flex items-center gap-2 font-semibold text-foreground">
             <span className="text-lg">📱</span>
             <span className={`hidden sm:inline text-lg ${logoFont.className}`}>Smart Sales</span>
           </Link>
         </div>
-        <nav className="flex flex-1 flex-row gap-1 p-2 sm:flex-col">
-          {nav.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href))
-                  ? "bg-sidebar-accent text-foreground"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
-              )}
-            >
-              {item.label}
-            </Link>
-          ))}
+        <nav className="flex flex-1 flex-row gap-1 overflow-x-auto p-2 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto">
+          {(() => {
+            const groupStyle: Record<NavGroup, { active: string; idle: string; border: string; label: string }> = {
+              dashboard: {
+                active: "bg-slate-200/70 text-slate-800 dark:bg-slate-700/50 dark:text-slate-100",
+                idle: "text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800/40 dark:hover:text-slate-200",
+                border: "border-l-slate-400 dark:border-l-slate-500",
+                label: "",
+              },
+              core: {
+                active: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
+                idle: "text-sidebar-foreground hover:bg-blue-50/60 hover:text-blue-700 dark:hover:bg-blue-950/30 dark:hover:text-blue-300",
+                border: "border-l-blue-500 dark:border-l-blue-400",
+                label: "핵심",
+              },
+              extra: {
+                active: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
+                idle: "text-sidebar-foreground hover:bg-emerald-50/60 hover:text-emerald-700 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-300",
+                border: "border-l-emerald-500 dark:border-l-emerald-400",
+                label: "부가",
+              },
+              settings: {
+                active: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
+                idle: "text-sidebar-foreground hover:bg-amber-50/60 hover:text-amber-700 dark:hover:bg-amber-950/30 dark:hover:text-amber-300",
+                border: "border-l-amber-500 dark:border-l-amber-400",
+                label: "설정",
+              },
+            };
+            let lastGroup: NavGroup | null = null;
+            return nav.map((item) => {
+              const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+              const style = groupStyle[item.group];
+              const showDivider = lastGroup !== null && lastGroup !== item.group;
+              lastGroup = item.group;
+              return (
+                <div key={item.href}>
+                  {showDivider && (
+                    <div className="my-1.5 hidden items-center gap-2 sm:flex">
+                      <div className="flex-1 border-t border-border/40" />
+                      {style.label && (
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">{style.label}</span>
+                      )}
+                      <div className="flex-1 border-t border-border/40" />
+                    </div>
+                  )}
+                  <Link
+                    href={item.href}
+                    className={cn(
+                      "rounded-lg px-3 py-2.5 text-sm font-medium transition-colors border-l-2 sm:border-l-2",
+                      isActive
+                        ? `${style.active} ${style.border}`
+                        : `border-l-transparent ${style.idle}`
+                    )}
+                    style={{ display: "block" }}
+                  >
+                    {item.label}
+                  </Link>
+                </div>
+              );
+            });
+          })()}
         </nav>
       </aside>
       <main className="flex-1 overflow-auto">

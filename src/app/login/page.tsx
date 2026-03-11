@@ -154,7 +154,6 @@ function LoginPageInner() {
         name: signName.trim(),
         email: signEmail.trim(),
         loginId: signLoginId.trim(),
-        storeGroupId: null,
       },
       signPassword
     );
@@ -247,7 +246,6 @@ function LoginPageInner() {
         name: inviteSignName.trim(),
         email: inviteSignEmail.trim(),
         loginId: inviteSignLoginId.trim(),
-        storeGroupId: null,
       },
       inviteSignPassword
     );
@@ -301,7 +299,7 @@ function LoginPageInner() {
               {tab === "reset_password" && "비밀번호 재설정"}
             </CardTitle>
             <CardDescription>
-              {tab === "login" && !showForgotForm && "매장주·지점장·판매사 모두 이 화면에서 로그인합니다. 매장주 또는 지점장이 먼저 로그인해야 판매사 로그인이 가능합니다."}
+              {tab === "login" && !showForgotForm && "매장주·판매사 모두 이 화면에서 로그인합니다. 매장주가 먼저 로그인해야 판매사 로그인이 가능합니다."}
               {tab === "login" && showForgotForm && "가입 시 사용한 아이디로 재설정 링크를 받을 수 있습니다."}
               {tab === "tenant_signup" && "매장을 등록하고 사장님 계정을 만드세요. 가입 후 판매사를 초대할 수 있습니다."}
               {tab === "invite_signup" && "매장주가 발급한 초대 코드를 입력한 뒤, 판매사 계정을 만드세요."}
@@ -479,8 +477,6 @@ function LoginPageInner() {
         </Card>
         <p className="mt-6 text-center text-sm text-muted-foreground">
           <Link href="/" className="underline hover:text-foreground">홈으로 돌아가기</Link>
-          {" · "}
-          <Link href="/signup-region-manager" className="underline hover:text-foreground">지점장 가입</Link>
           {" · "}
           <Link href="/signup-super-admin" className="underline hover:text-foreground">슈퍼 어드민 가입</Link>
         </p>

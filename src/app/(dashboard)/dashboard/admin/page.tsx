@@ -21,13 +21,12 @@ import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/client/store/useAuthStore";
-import { ExcelUpload } from "@/components/reports/excel-upload";
+import { CrmExcelUpload } from "@/components/reports/crm-excel-upload";
 
 interface ShopRow {
   id: string;
   name: string;
   createdAt: string;
-  storeGroupId: string | null;
   subscriptionStatus?: string;
 }
 
@@ -117,10 +116,10 @@ export default function AdminPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <span className="text-lg">📊</span>
-              판매일보 업로드
+              매장 CRM 고객 데이터 가져오기
             </CardTitle>
             <CardDescription>
-              매장별 판매일보 엑셀 파일을 업로드하여 고객 데이터를 시스템에 반영합니다. 엑셀 파일(.xlsx, .xls)만 업로드 가능합니다.
+              선택한 매장의 상담(CRM)으로 엑셀/CSV 고객 명부를 가져옵니다. 개통(O)된 건은 해당 매장의 판매일보에서 이동할 수 있습니다.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -142,7 +141,7 @@ export default function AdminPage() {
                     ))}
                   </select>
                 </div>
-                {selectedShopId && <ExcelUpload shopId={selectedShopId} />}
+                {selectedShopId && <CrmExcelUpload shopId={selectedShopId} />}
               </>
             )}
           </CardContent>

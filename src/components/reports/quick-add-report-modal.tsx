@@ -14,7 +14,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useReportsStore } from "@/client/store/useReportsStore";
+import { usePolicyStore } from "@/client/store/usePolicyStore";
 import type { ReportEntry } from "@/client/store/useReportsStore";
+
+type AdditionalDiscount = { id: string; name: string; amount: number };
 
 export type QuickAddReportPayload = Omit<ReportEntry, "id" | "uploadedAt">;
 
@@ -35,6 +38,8 @@ const emptyForm: QuickAddReportPayload = {
   salesPerson: "",
   planName: "",
   supportAmount: 0,
+  additionalDiscountIds: [],
+  additionalDiscountAmount: 0,
 };
 
 interface QuickAddReportModalProps {
@@ -46,6 +51,8 @@ interface QuickAddReportModalProps {
 export function QuickAddReportModal({ open, onClose, shopId }: QuickAddReportModalProps) {
   const addEntries = useReportsStore((s) => s.addEntries);
   const [form, setForm] = useState<QuickAddReportPayload>({ ...emptyForm, shopId });
+  const [discounts, setDiscounts] = useState<AdditionalDiscount[]>([]);
+  const [discountDropdowns, setDiscountDropdowns] = useState<string[]>([""]);
 
   const resetForm = useCallback(() => {
     setForm({
@@ -53,6 +60,7 @@ export function QuickAddReportModal({ open, onClose, shopId }: QuickAddReportMod
       shopId,
       saleDate: todayStr(),
     });
+    setDiscountDropdowns([""]);
   }, [shopId]);
 
   useEffect(() => {
@@ -67,9 +75,35 @@ export function QuickAddReportModal({ open, onClose, shopId }: QuickAddReportMod
     }
   }, [open, shopId]);
 
+  useEffect(() => {
+    if (!open || !shopId) return;
+    fetch(`/api/additional-discounts?shop_id=${encodeURIComponent(shopId)}`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list) => setDiscounts(Array.isArray(list) ? list : []))
+      .catch(() => setDiscounts([]));
+  }, [open, shopId]);
+
+  useEffect(() => {
+    if (!open || !form.productName?.trim()) return;
+    const { devicePolicies, planPolicies } = usePolicyStore.getState();
+    let margin = 0;
+    const productName = form.productName.trim();
+    const planName = (form.planName ?? "").trim();
+    const device = devicePolicies.find((d) => productName.includes(d.name));
+    if (device) margin += device.defaultSubsidy ?? 0;
+    const plan = planPolicies.find((p) => p.name === planName || planName.includes(p.name));
+    if (plan) margin += plan.rebate ?? 0;
+    setForm((prev) => ({ ...prev, margin }));
+  }, [open, form.productName, form.planName]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!shopId) return;
+    const selectedIds = discountDropdowns.filter((id) => id !== "");
+    const additionalDiscountAmount = selectedIds.reduce((sum, id) => {
+      const d = discounts.find((x) => x.id === id);
+      return sum + (d?.amount ?? 0);
+    }, 0);
     const entry: QuickAddReportPayload = {
       ...form,
       shopId,
@@ -86,6 +120,8 @@ export function QuickAddReportModal({ open, onClose, shopId }: QuickAddReportMod
       salesPerson: form.salesPerson?.trim() ?? "",
       planName: form.planName?.trim() ?? "",
       supportAmount: Number(form.supportAmount) || 0,
+      additionalDiscountIds: selectedIds,
+      additionalDiscountAmount,
     };
     addEntries([entry]);
     onClose();
@@ -235,11 +271,12 @@ export function QuickAddReportModal({ open, onClose, shopId }: QuickAddReportMod
                 <Input
                   id="quick-margin"
                   type="number"
-                  value={form.margin || ""}
+                  value={form.margin ?? ""}
                   onChange={(e) => update("margin", e.target.value ? Number(e.target.value) : 0)}
                   placeholder="0"
                   className="h-9"
                 />
+                <p className="text-xs text-muted-foreground">정책·단가가 자동 반영됩니다. 수정 가능.</p>
               </div>
               <div className="space-y-2">
                 <label htmlFor="quick-supportAmount" className="text-sm font-medium text-muted-foreground">
@@ -255,6 +292,61 @@ export function QuickAddReportModal({ open, onClose, shopId }: QuickAddReportMod
                   className="h-9"
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-muted-foreground">추가 할인</label>
+              <p className="text-xs text-muted-foreground">선택한 항목이 층층이 쌓여 마진에서 차감됩니다.</p>
+              <div className="flex flex-wrap items-center gap-2">
+                {discountDropdowns.map((selectedId, idx) => (
+                  <div key={idx} className="flex items-center gap-1">
+                    <select
+                      value={selectedId}
+                      onChange={(e) => {
+                        const next = [...discountDropdowns];
+                        next[idx] = e.target.value;
+                        setDiscountDropdowns(next);
+                      }}
+                      className="flex h-9 min-w-[10rem] rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+                    >
+                      <option value="">선택 안 함</option>
+                      {discounts.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name} (-{Number(d.amount).toLocaleString()}원)
+                        </option>
+                      ))}
+                    </select>
+                    {discountDropdowns.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 w-9 p-0 text-muted-foreground"
+                        aria-label="이 할인 제거"
+                        onClick={() =>
+                          setDiscountDropdowns((prev) => prev.filter((_, i) => i !== idx))
+                        }
+                      >
+                        ×
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  onClick={() => setDiscountDropdowns((prev) => [...prev, ""])}
+                >
+                  + 추가
+                </Button>
+              </div>
+              {discounts.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  추가 할인 메뉴에서 항목을 등록하면 여기서 선택할 수 있습니다.
+                </p>
+              )}
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">

@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuthStore } from "@/client/store/useAuthStore";
 import { cn } from "@/lib/utils";
+import { MentionTextarea } from "@/components/notices/mention-textarea";
 
 interface Notice {
   id: string;
@@ -42,7 +43,7 @@ export default function NoticesPage() {
   const user = useAuthStore((s) => s.user);
   const role = user?.role;
   const isSuperAdmin = role === "super_admin";
-  const canCreateNotice = role === "super_admin" || role === "region_manager" || role === "tenant_admin";
+  const canCreateNotice = role === "super_admin" || role === "tenant_admin";
   const canCreatePost = !!role; // 로그인한 모든 역할은 post 생성 가능
 
   const [notices, setNotices] = useState<Notice[]>([]);
@@ -68,7 +69,7 @@ export default function NoticesPage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch("/api/notices", { method: "GET" });
+        const res = await fetch("/api/notices", { method: "GET", credentials: "include" });
         const json = await res.json();
         if (!res.ok) {
           setError(json?.error ?? "공지 목록을 불러오지 못했습니다.");
@@ -113,6 +114,7 @@ export default function NoticesPage() {
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: "include",
         body: JSON.stringify({
           title: newTitle.trim(),
           body: newBody.trim(),
@@ -331,12 +333,13 @@ export default function NoticesPage() {
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">내용</label>
-                <textarea
+                <MentionTextarea
                   value={newBody}
-                  onChange={(e) => setNewBody(e.target.value)}
-                  placeholder="공지 내용을 입력하세요."
+                  onChange={setNewBody}
+                  placeholder="공지 내용을 입력하세요. @이름 으로 멘션할 수 있습니다."
                   disabled={submitting}
-                  className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  rows={5}
+                  className="min-h-[120px]"
                 />
               </div>
               <label className="flex items-center gap-2 text-sm text-muted-foreground">

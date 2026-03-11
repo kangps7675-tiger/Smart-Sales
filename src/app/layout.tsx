@@ -11,30 +11,30 @@
  */
 
 import type { Metadata } from "next";
-import localFont from "next/font/local";
+import { Noto_Sans_KR, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { GlobalErrorSetup } from "@/components/global-error-setup";
 import { NavigationLoading } from "@/components/navigation-loading";
 import "./globals.css";
 
 /**
- * Geist Sans 폰트 설정
- * 가변 폰트 (100-900 weight)로 다양한 굵기 지원
+ * 본문·UI용 sans 폰트 (로컬 폰트 의존 제거로 500 방지)
  */
-const geistSans = localFont({
-  src: "./fonts/GeistVF.woff",
+const geistSans = Noto_Sans_KR({
+  subsets: ["latin"],
   variable: "--font-geist-sans",
-  weight: "100 900",
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
 });
 
 /**
- * Geist Mono 폰트 설정
- * 가변 폰트 (100-900 weight)로 다양한 굵기 지원
+ * 코드·숫자용 mono 폰트
  */
-const geistMono = localFont({
-  src: "./fonts/GeistMonoVF.woff",
+const geistMono = JetBrains_Mono({
+  subsets: ["latin"],
   variable: "--font-geist-mono",
-  weight: "100 900",
+  weight: ["400", "500"],
+  display: "swap",
 });
 
 /**

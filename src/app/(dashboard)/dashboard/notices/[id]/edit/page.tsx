@@ -77,12 +77,12 @@ export default function NoticeEditPage() {
 
         // 페이지 진입 권한:
         // - super_admin: 모두 가능
-        // - region_manager / tenant_admin: 자기 글만 (notice/post)
+        // - tenant_admin: 자기 글만 (notice/post)
         // - staff: 자기 글 + post만
         let allowed = false;
         if (role === "super_admin") {
           allowed = true;
-        } else if (role === "region_manager" || role === "tenant_admin") {
+        } else if (role === "tenant_admin") {
           allowed = isOwner;
         } else if (role === "staff") {
           allowed = isOwner && !isNotice;

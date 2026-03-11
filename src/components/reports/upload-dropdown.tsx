@@ -13,9 +13,9 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { parseExcelToReportEntries } from "@/lib/excel-report";
-import type { ReportImportConfig } from "@/lib/report-entry-map";
+import { useAuthStore } from "@/client/store/useAuthStore";
 import { useReportsStore } from "@/client/store/useReportsStore";
+
 
 /**
  * UploadDropdown 컴포넌트 Props
@@ -58,15 +58,21 @@ export function UploadDropdown({ shopId, noShopMessage }: UploadDropdownProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (!message) return;
+    const t = setTimeout(() => setMessage(null), 4000);
+    return () => clearTimeout(t);
+  }, [message]);
+
   /**
    * 파일 선택 핸들러
-   * 
+   *
    * 파일이 선택되면:
-   * 1. 파일 확장자 검증 (.xlsx, .xls만 허용)
-   * 2. 엑셀 파일 파싱
-   * 3. 파싱된 데이터를 스토어에 저장
+   * 1. 파일 확장자 검증 (.xlsx/.xls/.csv 허용)
+   * 2. 서버에서 xlsx→csv 변환 및 파싱/저장
+   * 3. 서버 데이터 재조회
    * 4. 성공/에러 메시지 표시 및 드롭다운 닫기
-   * 
+   *
    * @param e - 파일 입력 이벤트
    */
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -79,10 +85,14 @@ export function UploadDropdown({ shopId, noShopMessage }: UploadDropdownProps) {
       return;
     }
 
-    // 파일 확장자 검증
+    // 파일 확장자 검증 (.xlsx, .xls, .csv)
     const name = file.name.toLowerCase();
-    if (!name.endsWith(".xlsx") && !name.endsWith(".xls")) {
-      setMessage({ type: "error", text: "엑셀 파일(.xlsx, .xls)만 업로드 가능합니다." });
+    const ok = name.endsWith(".xlsx") || name.endsWith(".xls") || name.endsWith(".csv");
+    if (!ok) {
+      setMessage({
+        type: "error",
+        text: "엑셀/CSV 파일(.xlsx, .xls, .csv)만 업로드 가능합니다.",
+      });
       return;
     }
 
@@ -91,45 +101,49 @@ export function UploadDropdown({ shopId, noShopMessage }: UploadDropdownProps) {
     setOpen(false); // 파일 선택 시 드롭다운 닫기
 
     try {
-      let importConfig: ReportImportConfig | null = null;
-      try {
-        const settingsRes = await fetch(`/api/shop-settings?shop_id=${encodeURIComponent(shopId)}`);
-        if (settingsRes.ok) {
-          const settings = await settingsRes.json();
-          if (settings.report_import_config && typeof settings.report_import_config === "object") {
-            importConfig = settings.report_import_config as ReportImportConfig;
-          }
-        }
-      } catch {
-        // 설정 없으면 기본 매핑 사용
-      }
-      const { entries, errors } = await parseExcelToReportEntries(file, shopId, {
-        config: importConfig ?? undefined,
+      const form = new FormData();
+      form.append("shop_id", shopId);
+      form.append("overwrite", "true");
+      form.append("file", file);
+
+      const res = await fetch("/api/reports/import-file", {
+        method: "POST",
+        body: form,
       });
-      
-      // 파싱된 데이터가 있으면 스토어에 저장
-      if (entries.length > 0) {
-        useReportsStore.getState().addEntries(entries);
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        const sampleRows = Array.isArray(json?.debugSampleRows) ? json.debugSampleRows as string[][] : [];
+        const sampleNote = sampleRows.length > 0
+          ? ` [파일 내용 샘플: ${sampleRows.map((r: string[]) => r.join(", ")).join(" | ")}]`
+          : "";
+        const headersNote =
+          !sampleNote && Array.isArray(json?.detectedHeaders) && json.detectedHeaders.length > 0
+            ? ` [파일 헤더: ${(json.detectedHeaders as string[]).slice(0, 12).join(", ")}${json.detectedHeaders.length > 12 ? " …" : ""}]`
+            : "";
         setMessage({
-          type: "success",
-          text: `${entries.length}건의 고객 데이터를 불러왔습니다. 대시보드에 반영됩니다.`,
+          type: "error",
+          text: `${json?.error ?? "파일 처리 중 오류가 발생했습니다."}${sampleNote || headersNote} (총 ${json?.debugTotalRows ?? "?"}행)`,
         });
+        return;
       }
-      
-      // 에러가 있으면 에러 메시지 추가
-      if (errors.length > 0) {
-        setMessage((prev) => ({
-          type: prev ? prev.type : "error",
-          text: [prev?.text, ...errors].filter(Boolean).join(" "),
-        }));
+
+      if (json?._debug) {
+        console.log("[upload-debug] headerMapping:", json._debug.headerMapping);
+        console.log("[upload-debug] productName column:", json._debug.productNameColumn);
+        console.log("[upload-debug] sampleProductName:", json._debug.sampleProductName);
+        console.log("[upload-debug] dbSampleProductName:", json._debug.dbSampleProductName);
       }
-      
-      // 데이터도 없고 에러도 없으면 안내 메시지 표시
-      if (entries.length === 0 && errors.length === 0) {
-        setMessage({ type: "error", text: "추출된 데이터가 없습니다. 첫 행에 헤더가 있는지 확인해 주세요." });
-      }
-    } catch {
-      setMessage({ type: "error", text: "파일 처리 중 오류가 발생했습니다." });
+      const role = useAuthStore.getState().user?.role;
+      await useReportsStore.getState().loadEntries(shopId, role);
+      setMessage({
+        type: "success",
+        text: `${Number(json?.insertedCount ?? 0).toLocaleString()}건이 저장되었습니다.`,
+      });
+    } catch (err) {
+      setMessage({
+        type: "error",
+        text: err instanceof Error ? err.message : "파일 변환 또는 업로드 중 오류가 발생했습니다.",
+      });
     } finally {
       setLoading(false);
       // 파일 입력 초기화 (같은 파일을 다시 선택할 수 있도록)
@@ -228,7 +242,7 @@ export function UploadDropdown({ shopId, noShopMessage }: UploadDropdownProps) {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".xlsx,.xls"
+        accept=".xlsx,.xls,.csv"
         className="hidden"
         onChange={handleFile}
         disabled={loading}
@@ -368,6 +382,12 @@ export function UploadDropdown({ shopId, noShopMessage }: UploadDropdownProps) {
                     placeholder="https://docs.google.com/spreadsheets/d/..."
                     value={googleSheetsUrl}
                     onChange={(e) => setGoogleSheetsUrl(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleLoadGoogleSheets();
+                      }
+                    }}
                     className="text-sm"
                   />
                   <div className="flex gap-2">

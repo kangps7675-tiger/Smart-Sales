@@ -8,7 +8,6 @@
  * 
  * 접근 권한:
  * - tenant_admin: 본인 매장 설정만 가능
- * - region_manager: 담당 지점 매장 설정 가능
  * - super_admin: 모든 매장 설정 가능
  * - staff: 접근 불가 (대시보드로 리다이렉트)
  * 
@@ -43,6 +42,8 @@ const MARGIN_SUM_FIELD_OPTIONS: { key: string; label: string }[] = [
   { key: "verbalD", label: "구두 D" },
   { key: "verbalE", label: "구두 E" },
   { key: "verbalF", label: "구두 F" },
+  { key: "officialSubsidy", label: "공시지원" },
+  { key: "supportAmount", label: "지원금" },
 ];
 
 /**
@@ -55,15 +56,16 @@ export default function ShopSettingsPage() {
   const user = useAuthStore((s) => s.user);
   const getShopsForCurrentUser = useAuthStore((s) => s.getShopsForCurrentUser);
 
-  const canManage = user?.role === "tenant_admin" || user?.role === "super_admin" || user?.role === "region_manager";
+  const canManage = user?.role === "tenant_admin" || user?.role === "super_admin";
   const shops = getShopsForCurrentUser();
-  const canSelectShop = user?.role === "super_admin" || user?.role === "region_manager";
+  const canSelectShop = user?.role === "super_admin";
   const [selectedShopId, setSelectedShopId] = useState("");
   const [settings, setSettings] = useState<ShopSettingsDto | null>(null);
   const [columnMappingText, setColumnMappingText] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -90,7 +92,6 @@ export default function ShopSettingsPage() {
         "x-user-role": user.role,
       };
       if (user.shopId) headers["x-user-shop-id"] = user.shopId;
-      if (user.storeGroupId) headers["x-store-group-id"] = user.storeGroupId;
       const res = await fetch(`/api/shop-settings?shop_id=${encodeURIComponent(shopId)}`, { headers });
       const json = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -169,7 +170,6 @@ export default function ShopSettingsPage() {
         "x-user-role": user.role,
       };
       if (user.shopId) headers["x-user-shop-id"] = user.shopId;
-      if (user.storeGroupId) headers["x-store-group-id"] = user.storeGroupId;
       const reportImportConfig = buildReportImportConfig();
       const body: Record<string, unknown> = {
         shop_id: selectedShopId,
@@ -216,7 +216,7 @@ export default function ShopSettingsPage() {
         </p>
       </div>
 
-      {(user.role === "tenant_admin" && user.shopId) || user.role === "region_manager" || user.role === "super_admin" ? (
+      {(user.role === "tenant_admin" && user.shopId) || user.role === "super_admin" ? (
         <Card className="border-border/80">
           <CardHeader>
             <CardTitle>{user.role === "tenant_admin" ? "내 매장" : "매장 목록"}</CardTitle>
@@ -311,101 +311,120 @@ export default function ShopSettingsPage() {
       )}
 
       {selectedShopId && settings && (
-        <Card className="border-border/80">
-          <CardHeader>
-            <CardTitle>엑셀 가져오기 설정</CardTitle>
-            <CardDescription>
-              이 매장에서 엑셀/구글 시트를 불러올 때 사용할 컬럼 매핑과 마진 계산 방식을 설정합니다. 비워두면 기본 매핑(이름, 연락처, 개통단말기 등)을 사용합니다.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="column_mapping">컬럼 매핑 (선택)</Label>
-              <textarea
-                id="column_mapping"
-                className="min-h-[120px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                placeholder={'{"엑셀 헤더명": "내부필드"}\n예: {"고객명":"name","연락처":"phone","판매일":"saleDate","마진":"margin"}'}
-                value={columnMappingText}
-                onChange={(e) => setColumnMappingText(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                엑셀 첫 행 헤더명을 내부 필드(name, phone, saleDate, productName, amount, margin, salesPerson, planName, supportAmount, faceAmount, verbalA~F 등)로 매핑하는 JSON. 비워두면 기본 매핑 사용.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label>마진 계산 (마진 컬럼이 없을 때)</Label>
-              <div className="flex flex-wrap gap-4">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="radio"
-                    name="margin_formula"
-                    checked={(settings.report_import_config?.marginFormula ?? null) === null}
-                    onChange={() => setReportImportConfig({ marginFormula: undefined, marginSumFields: undefined })}
-                  />
-                  기본 (액면 + 구두 A~F)
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="radio"
-                    name="margin_formula"
-                    checked={settings.report_import_config?.marginFormula === "use_column"}
-                    onChange={() => setReportImportConfig({ marginFormula: "use_column", marginSumFields: undefined })}
-                  />
-                  엑셀 마진 컬럼만 사용
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="radio"
-                    name="margin_formula"
-                    checked={settings.report_import_config?.marginFormula === "sum_fields"}
-                    onChange={() =>
-                      setReportImportConfig({
-                        marginFormula: "sum_fields",
-                        marginSumFields: settings.report_import_config?.marginSumFields ?? ["faceAmount", "verbalA", "verbalB", "verbalC", "verbalD", "verbalE", "verbalF"],
-                      })
-                    }
-                  />
-                  지정 필드 합산
-                </label>
-              </div>
-              {settings.report_import_config?.marginFormula === "sum_fields" && (
-                <div className="mt-2 flex flex-wrap gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
-                  {MARGIN_SUM_FIELD_OPTIONS.map(({ key, label }) => {
-                    const list = settings.report_import_config?.marginSumFields ?? [];
-                    const checked = list.includes(key);
-                    return (
-                      <label key={key} className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {
-                            const next = checked ? list.filter((x) => x !== key) : [...list, key];
-                            setReportImportConfig({ marginSumFields: next.length ? next : undefined });
-                          }}
-                        />
-                        {label}
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? "저장 중..." : "저장"}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((v) => !v)}
+            className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`transition-transform ${advancedOpen ? "rotate-90" : ""}`}
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+            고급 설정 (엑셀 가져오기 커스터마이징)
+          </button>
 
-      <Card className="border-border/80">
-        <CardHeader>
-          <CardTitle>실적·목표</CardTitle>
-          <CardDescription>위에서 월 실적 목표(건수)를 설정할 수 있습니다. 대시보드·판매일보에서 실적과 비교해 확인하세요.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">매장 선택 후 위 카드에서 실적 목표 건수를 입력하고 저장하세요.</p>
-        </CardContent>
-      </Card>
+          {advancedOpen && (
+            <Card className="border-border/80 border-dashed">
+              <CardHeader>
+                <CardTitle className="text-base">엑셀 가져오기 설정</CardTitle>
+                <CardDescription>
+                  대부분의 엑셀 파일은 자동으로 인식됩니다. 헤더가 인식되지 않을 때만 아래에서 수동 매핑을 설정하세요.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="column_mapping">컬럼 매핑 (선택)</Label>
+                  <textarea
+                    id="column_mapping"
+                    className="min-h-[120px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    placeholder={'{"엑셀 헤더명": "내부필드"}\n예: {"고객명":"name","연락처":"phone","판매일":"saleDate","마진":"margin"}'}
+                    value={columnMappingText}
+                    onChange={(e) => setColumnMappingText(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    엑셀 첫 행 헤더명을 내부 필드로 매핑하는 JSON. 비워두면 자동 매핑을 사용합니다.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>마진 계산</Label>
+                  <p className="text-xs text-muted-foreground">
+                    엑셀에 마진 컬럼이 있으면 기본으로 그 값을 사용합니다. 필요 시 아래에서 계산 방식을 변경할 수 있습니다.
+                  </p>
+                  <div className="flex flex-wrap gap-4">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="margin_formula"
+                        checked={(settings.report_import_config?.marginFormula ?? null) === null}
+                        onChange={() => setReportImportConfig({ marginFormula: undefined, marginSumFields: undefined })}
+                      />
+                      기본 (액면 + 구두 A~F)
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="margin_formula"
+                        checked={settings.report_import_config?.marginFormula === "use_column"}
+                        onChange={() => setReportImportConfig({ marginFormula: "use_column", marginSumFields: undefined })}
+                      />
+                      엑셀 마진 컬럼만 사용
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="margin_formula"
+                        checked={settings.report_import_config?.marginFormula === "sum_fields"}
+                        onChange={() =>
+                          setReportImportConfig({
+                            marginFormula: "sum_fields",
+                            marginSumFields: settings.report_import_config?.marginSumFields ?? ["faceAmount", "verbalA", "verbalB", "verbalC", "verbalD", "verbalE", "verbalF"],
+                          })
+                        }
+                      />
+                      지정 필드 합산
+                    </label>
+                  </div>
+                  {settings.report_import_config?.marginFormula === "sum_fields" && (
+                    <div className="mt-2 flex flex-wrap gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                      {MARGIN_SUM_FIELD_OPTIONS.map(({ key, label }) => {
+                        const list = settings.report_import_config?.marginSumFields ?? [];
+                        const checked = list.includes(key);
+                        return (
+                          <label key={key} className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                const next = checked ? list.filter((x) => x !== key) : [...list, key];
+                                setReportImportConfig({ marginSumFields: next.length ? next : undefined });
+                              }}
+                            />
+                            {label}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving ? "저장 중..." : "저장"}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
     </div>
   );
 }

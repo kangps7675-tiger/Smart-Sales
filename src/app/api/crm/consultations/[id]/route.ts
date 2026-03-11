@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/server/supabase";
-import { assertShopInStoreGroup, getAuthContext } from "@/server/auth";
+import { getAuthContext } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -17,11 +17,6 @@ async function getConsultationAndScope(id: string, auth: Awaited<ReturnType<type
   const shopId = (data as { shop_id: string }).shop_id;
 
   if (auth?.role === "super_admin") return { consultation: data, allowed: true };
-  if (auth?.role === "region_manager") {
-    if (!auth.storeGroupId) return { consultation: data, allowed: false };
-    const ok = await assertShopInStoreGroup(shopId, auth.storeGroupId);
-    return { consultation: data, allowed: ok };
-  }
   if (auth?.role === "tenant_admin" || auth?.role === "staff") {
     return { consultation: data, allowed: auth.shopId === shopId };
   }
