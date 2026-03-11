@@ -241,9 +241,9 @@ export default function ScheduledPage() {
               상담(CRM)에서 개통여부를 △로 두면 여기에 표시됩니다.
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/dashboard/crm">상담(CRM)으로 이동</Link>
-          </Button>
+          <Link href="/dashboard/crm">
+            <Button variant="outline" size="sm">상담(CRM)으로 이동</Button>
+          </Link>
         </CardHeader>
         <CardContent>
           {!shopId ? (

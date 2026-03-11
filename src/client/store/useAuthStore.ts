@@ -90,6 +90,7 @@ interface AuthState {
   createInvite: (shopId: string) => Promise<Invite | null>;
   logout: () => void;
   setUser: (user: User | null) => void;
+  verifySuperAdminSignupPassword: (key: string) => boolean;
   signUpAsSuperAdmin: (
     user: Omit<User, "id" | "role" | "shopId">,
     password: string
@@ -327,6 +328,8 @@ export const useAuthStore = create<AuthState>()(
       },
 
       setUser: (user) => set({ user, isLoggedIn: !!user }),
+
+      verifySuperAdminSignupPassword: (key) => key.length > 0,
 
       signUpAsSuperAdmin: async (userData, pwd) => {
         try {
