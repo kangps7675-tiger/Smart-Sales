@@ -1452,6 +1452,7 @@ export default function ReportsPage() {
           open={quickAddOpen}
           onClose={() => setQuickAddOpen(false)}
           shopId={shopId}
+          hasInvitedStaff={hasInvitedStaff}
         />
       )}
     </div>

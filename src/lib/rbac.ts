@@ -24,7 +24,6 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "판매 일보", href: "/dashboard/reports", group: "core" },
   { label: "상담(CRM)", href: "/dashboard/crm", group: "core" },
   { label: "예정건", href: "/dashboard/scheduled", group: "core" },
-  { label: "새 계약·상담", href: "/dashboard/contract/new", group: "core" },
   { label: "고객 관리", href: "/dashboard/customers", group: "core" },
   // 부가 기능
   { label: "월별 요약", href: "/dashboard/summary", group: "extra" },

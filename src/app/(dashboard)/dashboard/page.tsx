@@ -714,8 +714,8 @@ export default function DashboardPage() {
           <CardHeader><CardTitle>빠른 작업</CardTitle></CardHeader>
           <CardContent className="space-y-5">
             <div className="pt-1">
-              <Link href="/dashboard/contract/new">
-                <Button className="w-full sm:w-auto" size="lg">새 계약·상담 등록</Button>
+              <Link href="/dashboard/reports">
+                <Button className="w-full sm:w-auto" size="lg">판매 일보 한 건 추가</Button>
               </Link>
             </div>
           </CardContent>
