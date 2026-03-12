@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
 import { MentionText } from "@/components/notices/mention-text";
+import { MentionTextarea } from "@/components/notices/mention-textarea";
 
 export type CommentItem = {
   id: string;
@@ -38,7 +38,9 @@ export function NoticeComments({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/notices/${noticeId}/comments`);
+      const res = await fetch(`/api/notices/${noticeId}/comments`, {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("댓글을 불러올 수 없습니다.");
       const data = await res.json();
       setComments(Array.isArray(data) ? data : []);
@@ -63,6 +65,7 @@ export function NoticeComments({
       const res = await fetch(`/api/notices/${noticeId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           body: trimmed,
           parent_id: replyToId ?? undefined,
@@ -87,7 +90,7 @@ export function NoticeComments({
     try {
       const res = await fetch(
         `/api/notices/${noticeId}/comments/${commentId}`,
-        { method: "DELETE" },
+        { method: "DELETE", credentials: "include" },
       );
       if (!res.ok) throw new Error("삭제에 실패했습니다.");
       await fetchComments();
@@ -141,9 +144,8 @@ export function NoticeComments({
         {canDelete(c) && (
           <Button
             type="button"
-            variant="ghost"
             size="sm"
-            className="shrink-0 text-destructive hover:text-destructive"
+            className="shrink-0 bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-950/50 transition-colors"
             onClick={() => deleteComment(c.id)}
           >
             삭제
@@ -190,10 +192,10 @@ export function NoticeComments({
               </button>
             </p>
           )}
-          <Textarea
+          <MentionTextarea
             placeholder="댓글을 입력하세요. @이름 으로 멘션할 수 있습니다."
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={setBody}
             rows={2}
             className="resize-none"
           />

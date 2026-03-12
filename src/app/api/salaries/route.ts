@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/server/supabase";
-import { assertShopInStoreGroup, getAuthContext } from "@/server/auth";
+import { getAuthContext } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
 /** GET /api/salaries?shop_id=...&sales_person=...&period_start=...&period_end=...
- *  급여 이력 조회. tenant_admin/super_admin/region_manager: shop_id 필수. staff: 본인 shop_id, sales_person=본인 이름만.
- *  region_manager일 때: x-store-group-id 헤더 필수, shop_id가 해당 지점 소속인지 검증.
+ *  급여 이력 조회. tenant_admin/super_admin: shop_id 필수. staff: 본인 shop_id, sales_person=본인 이름만.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -26,11 +25,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    if (auth.role === "region_manager") {
-      if (!auth.storeGroupId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      const ok = await assertShopInStoreGroup(shopId, auth.storeGroupId);
-      if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
     if ((auth.role === "tenant_admin" || auth.role === "staff") && auth.shopId !== shopId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -55,11 +49,8 @@ export async function GET(req: NextRequest) {
     const { data, error } = await query;
 
     if (error) {
-      console.error('Error fetching salary_snapshots', error);
-      return NextResponse.json(
-        { error: 'Failed to fetch salary history' },
-        { status: 500 },
-      );
+      console.error("[GET /api/salaries] salary_snapshots fetch error", error.message, error.code);
+      return NextResponse.json([], { status: 200 });
     }
 
     return NextResponse.json(data ?? [], { status: 200 });
@@ -74,7 +65,7 @@ export async function GET(req: NextRequest) {
 
 /** POST /api/salaries
  *  body: { shop_id, period_start, period_end, rows: [{ salesPerson, count, totalMargin, totalSupport, calculatedSalary }] }
- *  super_admin / region_manager / tenant_admin만 호출 가능. x-user-role 헤더로 검사.
+ *  super_admin / tenant_admin만 호출 가능.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -94,11 +85,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (auth.role === "region_manager") {
-      if (!auth.storeGroupId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      const ok = await assertShopInStoreGroup(String(shop_id), auth.storeGroupId);
-      if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
     if (auth.role === "tenant_admin" && auth.shopId !== String(shop_id)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

@@ -29,14 +29,14 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await supabaseAdmin
       .from('profiles')
-      .select('id, name, role, shop_id, managed_store_group_id, password_hash')
+      .select('id, name, role, shop_id, password_hash')
       .eq('login_id', login_id)
       .maybeSingle();
 
     if (error) {
       console.error('Error querying profiles by login_id', error);
       return NextResponse.json(
-        { error: '로그인 처리 중 오류가 발생했습니다. 서버 로그를 확인하거나 DB 마이그레이션(managed_store_group_id 등)을 실행했는지 확인하세요.' },
+        { error: '로그인 처리 중 오류가 발생했습니다. 서버 로그를 확인해 주세요.' },
         { status: 500 }
       );
     }
@@ -67,12 +67,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { id, name, role, shop_id, managed_store_group_id } = data as {
+    const { id, name, role, shop_id } = data as {
       id: string;
       name: string | null;
       role: string;
       shop_id: string | null;
-      managed_store_group_id: string | null;
     };
 
     try {
@@ -94,28 +93,10 @@ export async function POST(req: NextRequest) {
           .gte('last_login_at', since)
           .limit(1);
 
-        let hasRecentManager = Array.isArray(shopRecent) && shopRecent.length > 0;
-        if (!hasRecentManager) {
-          const { data: shopRow } = await supabaseAdmin
-            .from('shops')
-            .select('store_group_id')
-            .eq('id', shopId)
-            .maybeSingle();
-          const storeGroupId = (shopRow as { store_group_id?: string | null } | null)?.store_group_id ?? null;
-          if (storeGroupId) {
-            const { data: groupRecent } = await supabaseAdmin
-              .from('manager_login_timestamps')
-              .select('last_login_at')
-              .eq('scope_type', 'store_group')
-              .eq('scope_id', storeGroupId)
-              .gte('last_login_at', since)
-              .limit(1);
-            hasRecentManager = Array.isArray(groupRecent) && groupRecent.length > 0;
-          }
-        }
+        const hasRecentManager = Array.isArray(shopRecent) && shopRecent.length > 0;
         if (!hasRecentManager) {
           return NextResponse.json(
-            { error: '매장주 또는 지점장이 먼저 로그인한 후 판매사 로그인이 가능합니다.' },
+            { error: '매장주가 먼저 로그인한 후 판매사 로그인이 가능합니다.' },
             { status: 403 },
           );
         }
@@ -129,14 +110,6 @@ export async function POST(req: NextRequest) {
             { onConflict: 'scope_type,scope_id' },
           );
       }
-      if (role === 'region_manager' && managed_store_group_id) {
-        await supabaseAdmin
-          .from('manager_login_timestamps')
-          .upsert(
-            { scope_type: 'store_group', scope_id: managed_store_group_id, last_login_at: new Date().toISOString() },
-            { onConflict: 'scope_type,scope_id' },
-          );
-      }
     } catch (managerTableErr) {
       console.warn('[Login] manager_login_timestamps 사용 실패(테이블 없을 수 있음). 로그인은 계속 진행.', managerTableErr);
     }
@@ -147,7 +120,6 @@ export async function POST(req: NextRequest) {
         name,
         role,
         shop_id,
-        store_group_id: managed_store_group_id ?? null,
       },
       { status: 200 },
     );

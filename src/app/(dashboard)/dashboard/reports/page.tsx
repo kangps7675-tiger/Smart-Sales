@@ -17,14 +17,15 @@
 
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ExcelUpload } from "@/components/reports/excel-upload";
 import { QuickAddReportModal } from "@/components/reports/quick-add-report-modal";
+import { ExcelUpload } from "@/components/reports/excel-upload";
 import { UploadDropdown } from "@/components/reports/upload-dropdown";
 import { useAuthStore } from "@/client/store/useAuthStore";
 import { useReportsStore, type ReportEntry } from "@/client/store/useReportsStore";
-import { getSalesPersonSalaryRows } from "@/lib/salary-calc";
+import { getSalesPersonSalaryRows, getOwnerSalaryRow } from "@/lib/salary-calc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -67,18 +68,36 @@ export default function ReportsPage() {
   const [editDraft, setEditDraft] = useState<Partial<ReportEntry> | null>(null);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
 
+  /** 스냅샷 저장/불러오기 */
+  interface SnapshotMeta {
+    id: string;
+    shop_id: string;
+    name: string;
+    entry_count: number;
+    created_by: string | null;
+    created_at: string;
+  }
+  const [snapshots, setSnapshots] = useState<SnapshotMeta[]>([]);
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false);
+  const [savingSnapshot, setSavingSnapshot] = useState(false);
+  const [loadingSnapshotId, setLoadingSnapshotId] = useState<string | null>(null);
+  const [snapshotToast, setSnapshotToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [snapshotNameInput, setSnapshotNameInput] = useState("");
+  const [showSnapshotList, setShowSnapshotList] = useState(false);
+  const [expandedSnapshotId, setExpandedSnapshotId] = useState<string | null>(null);
+
   /** 급여 DB 저장·이력 */
   const [salaryHistory, setSalaryHistory] = useState<SalarySnapshot[]>([]);
   const [salaryHistoryLoading, setSalaryHistoryLoading] = useState(false);
   const [saveSalaryLoading, setSaveSalaryLoading] = useState(false);
   const [salaryToast, setSalaryToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [salaryCalcOptions, setSalaryCalcOptions] = useState<{ perSaleIncentive?: number; marginPercent?: number }>({});
+  const [hasInvitedStaff, setHasInvitedStaff] = useState(false);
 
   // 개별 매장(지점): 해당 매장만 표시. 슈퍼 어드민만 매장 선택 가능.
   const isSuperAdmin = user?.role === "super_admin";
-  const isRegionManager = user?.role === "region_manager";
   const isBranchUser = user?.role === "tenant_admin" || user?.role === "staff";
-  const canSelectShop = isSuperAdmin || isRegionManager;
+  const canSelectShop = isSuperAdmin;
   const shopId = isBranchUser
     ? userShopId
     : (selectedShopId || userShopId || (shops.length > 0 ? shops[0]?.id : ""));
@@ -98,12 +117,21 @@ export default function ReportsPage() {
     loadEntries(shopId, user.role);
   }, [user, shopId, loadEntries]);
 
+  useEffect(() => {
+    if (!shopId || !user || user.role === "staff") { setHasInvitedStaff(false); return; }
+    let cancelled = false;
+    fetch(`/api/shops/staff?shop_id=${encodeURIComponent(shopId)}`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((list) => { if (!cancelled) setHasInvitedStaff(Array.isArray(list) && list.length > 0); })
+      .catch(() => { if (!cancelled) setHasInvitedStaff(false); });
+    return () => { cancelled = true; };
+  }, [shopId, user]);
+
   /** 급여 계산에 매장 설정(건당 인센티브·마진률) 반영 */
   useEffect(() => {
-    if (!shopId || !user || !(user.role === "tenant_admin" || user.role === "super_admin" || user.role === "region_manager")) return;
+    if (!shopId || !user || !(user.role === "tenant_admin" || user.role === "super_admin")) return;
     const headers: Record<string, string> = { "x-user-role": user.role };
     if (user.shopId) headers["x-user-shop-id"] = user.shopId;
-    if (user.storeGroupId) headers["x-store-group-id"] = user.storeGroupId;
     fetch(`/api/shop-settings?shop_id=${encodeURIComponent(shopId)}`, { headers })
       .then((r) => r.json().catch(() => ({})))
       .then((json) => {
@@ -231,27 +259,99 @@ export default function ReportsPage() {
   /** 판매사별 지원금 내역 (현재 매장 전체 데이터 기준) */
   const salesPersonSupportSummary = useMemo(() => {
     const list = entriesRaw.filter((e) => e.shopId === shopId);
-    const map = new Map<string, { count: number; totalSupport: number }>();
+    const map = new Map<string, { count: number; totalSupport: number; totalMargin: number }>();
     list.forEach((e) => {
       const key = (e.salesPerson ?? "").trim() || "(미지정)";
-      const cur = map.get(key) ?? { count: 0, totalSupport: 0 };
+      const cur = map.get(key) ?? { count: 0, totalSupport: 0, totalMargin: 0 };
       map.set(key, {
         count: cur.count + 1,
         totalSupport: cur.totalSupport + (e.supportAmount ?? 0),
+        totalMargin: cur.totalMargin + (e.margin ?? 0),
       });
     });
-    return Array.from(map.entries())
+    const rows = Array.from(map.entries())
       .map(([name, v]) => ({ salesPerson: name, ...v }))
-      .sort((a, b) => b.totalSupport - a.totalSupport);
+      .sort((a, b) => b.totalMargin - a.totalMargin);
+    const grandMargin = rows.reduce((s, r) => s + r.totalMargin, 0);
+    return rows.map((r) => ({
+      ...r,
+      percent: grandMargin > 0 ? (r.totalMargin / grandMargin) * 100 : 0,
+    }));
   }, [entriesRaw, shopId]);
 
   /** 매장주·슈퍼어드민만: 판매일보 기반 판매사별 급여 계산 (건당 3만원 기준) */
-  const canShowSalary = user?.role === "tenant_admin" || user?.role === "super_admin" || user?.role === "region_manager";
+  const canShowSalary = user?.role === "tenant_admin" || user?.role === "super_admin";
   const salesPersonSalaryRows = useMemo(() => {
     if (!shopId || !canShowSalary) return [];
     const list = entriesRaw.filter((e) => e.shopId === shopId);
     return getSalesPersonSalaryRows(list, salaryCalcOptions);
   }, [entriesRaw, shopId, canShowSalary, salaryCalcOptions]);
+
+  /** 매장주 급여·지원금 1행 (매장 전체 합계). 매장주/지점장 로그인 시 표시 */
+  const ownerSalaryRow = useMemo(() => {
+    if (!shopId || !canShowSalary) return null;
+    const list = entriesRaw.filter((e) => e.shopId === shopId);
+    return getOwnerSalaryRow(list, salaryCalcOptions);
+  }, [entriesRaw, shopId, canShowSalary, salaryCalcOptions]);
+
+  /** 추출된 고객 목록: 페이지네이션(50건) 및 전체선택 */
+  const REPORTS_PER_PAGE = 50;
+  const [reportSelectedIds, setReportSelectedIds] = useState<string[]>([]);
+  const [reportPage, setReportPage] = useState(1);
+  const totalReportPages = Math.max(1, Math.ceil(entries.length / REPORTS_PER_PAGE));
+  const pageEntries = useMemo(
+    () =>
+      entries.slice(
+        (reportPage - 1) * REPORTS_PER_PAGE,
+        reportPage * REPORTS_PER_PAGE
+      ),
+    [entries, reportPage]
+  );
+  useEffect(() => {
+    setReportPage(1);
+  }, [entries.length, searchQuery]);
+  useEffect(() => {
+    if (reportPage > totalReportPages) setReportPage(totalReportPages);
+  }, [reportPage, totalReportPages]);
+  const reportSelectAllOnPage = useCallback(() => {
+    const ids = pageEntries.map((e) => e.id);
+    setReportSelectedIds((prev) => Array.from(new Set([...prev, ...ids])));
+  }, [pageEntries]);
+  const reportClearSelection = useCallback(() => setReportSelectedIds([]), []);
+  const reportToggleOne = useCallback((id: string) => {
+    setReportSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }, []);
+  const reportAllOnPageSelected =
+    pageEntries.length > 0 && pageEntries.every((e) => reportSelectedIds.includes(e.id));
+  const reportSomeOnPageSelected = pageEntries.some((e) => reportSelectedIds.includes(e.id));
+  const reportSelectAllCheckboxRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const el = reportSelectAllCheckboxRef.current;
+    if (el) el.indeterminate = reportSomeOnPageSelected && !reportAllOnPageSelected;
+  }, [reportSomeOnPageSelected, reportAllOnPageSelected]);
+  const reportPaginationNumbers = useMemo(() => {
+    const maxVisible = 9;
+    if (totalReportPages <= maxVisible) {
+      return Array.from({ length: totalReportPages }, (_, i) => i + 1);
+    }
+    const result: (number | "ellipsis")[] = [];
+    const half = Math.floor(maxVisible / 2);
+    let start = Math.max(1, reportPage - half);
+    let end = Math.min(totalReportPages, start + maxVisible - 1);
+    if (end - start + 1 < maxVisible) start = Math.max(1, end - maxVisible + 1);
+    if (start > 1) {
+      result.push(1);
+      if (start > 2) result.push("ellipsis");
+    }
+    for (let i = start; i <= end; i++) result.push(i);
+    if (end < totalReportPages) {
+      if (end < totalReportPages - 1) result.push("ellipsis");
+      result.push(totalReportPages);
+    }
+    return result;
+  }, [totalReportPages, reportPage]);
 
   /** 판매사(staff) 전용: 로그인한 본인 이름과 일치하는 판매 건만 집계한 "나의 실적" */
   const isStaff = user?.role === "staff";
@@ -284,9 +384,7 @@ export default function ReportsPage() {
     try {
       const params = new URLSearchParams({ shop_id: shopId, role: user?.role ?? "" });
       if (user?.role === "staff" && user?.name?.trim()) params.set("sales_person", user.name.trim());
-      const headers: Record<string, string> = {};
-      if (user?.role === "region_manager" && user?.storeGroupId) headers["x-store-group-id"] = user.storeGroupId;
-      const res = await fetch(`/api/salaries?${params}`, { headers });
+      const res = await fetch(`/api/salaries?${params}`);
       const json = await res.json().catch(() => []);
       setSalaryHistory(Array.isArray(json) ? (json as SalarySnapshot[]) : []);
     } catch {
@@ -294,11 +392,11 @@ export default function ReportsPage() {
     } finally {
       setSalaryHistoryLoading(false);
     }
-  }, [shopId, user?.role, user?.name, user?.storeGroupId]);
+  }, [shopId, user?.role, user?.name]);
 
   useEffect(() => {
     if (!shopId || !user) return;
-    if (user.role === "tenant_admin" || user.role === "super_admin" || user.role === "region_manager" || user.role === "staff") {
+    if (user.role === "tenant_admin" || user.role === "super_admin" || user.role === "staff") {
       loadSalaryHistory();
     }
   }, [shopId, user, loadSalaryHistory]);
@@ -319,7 +417,6 @@ export default function ReportsPage() {
         "Content-Type": "application/json",
         "x-user-role": user.role,
       };
-      if (user.role === "region_manager" && user.storeGroupId) reqHeaders["x-store-group-id"] = user.storeGroupId;
       const res = await fetch("/api/salaries", {
         method: "POST",
         headers: reqHeaders,
@@ -362,25 +459,26 @@ export default function ReportsPage() {
 
     const headers = [
       "판매일",
-      "판매사",
+      ...(hasInvitedStaff ? ["판매사"] : []),
       "고객명",
       "연락처",
       "생년월일",
       "주소",
       "유입경로",
       "기존통신사",
-      "개통단말기",
+      "모델",
+      "일련번호",
       "요금제",
       "금액",
       "지원금",
-      "마진",
+      "판매마진",
     ];
 
     const rows = entriesRaw
       .filter((e) => e.shopId === shopId)
       .map((e) => [
         e.saleDate ?? "",
-        e.salesPerson ?? "",
+        ...(hasInvitedStaff ? [e.salesPerson ?? ""] : []),
         e.name ?? "",
         e.phone ?? "",
         e.birthDate ?? "",
@@ -388,6 +486,7 @@ export default function ReportsPage() {
         e.path ?? "",
         e.existingCarrier ?? "",
         e.productName ?? "",
+        e.serialNumber ?? "",
         e.planName ?? "",
         e.amount ?? 0,
         e.supportAmount ?? 0,
@@ -410,6 +509,99 @@ export default function ReportsPage() {
     URL.revokeObjectURL(url);
   }, [entriesRaw, shopId]);
 
+  const loadSnapshots = useCallback(async () => {
+    if (!shopId) return;
+    setSnapshotsLoading(true);
+    try {
+      const res = await fetch(`/api/reports/snapshots?shop_id=${encodeURIComponent(shopId)}`, {
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => []);
+      setSnapshots(Array.isArray(json) ? json : []);
+    } catch {
+      setSnapshots([]);
+    } finally {
+      setSnapshotsLoading(false);
+    }
+  }, [shopId]);
+
+  useEffect(() => {
+    if (shopId && user) loadSnapshots();
+  }, [shopId, user, loadSnapshots]);
+
+  const handleSaveSnapshot = useCallback(async () => {
+    if (!shopId || savingSnapshot) return;
+    setSavingSnapshot(true);
+    setSnapshotToast(null);
+    try {
+      const res = await fetch("/api/reports/snapshots", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shop_id: shopId,
+          name: snapshotNameInput.trim() || undefined,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSnapshotToast({ type: "error", text: json?.error ?? "저장에 실패했습니다." });
+        return;
+      }
+      setSnapshotToast({ type: "success", text: "판매일보가 저장되었습니다." });
+      setSnapshotNameInput("");
+      loadSnapshots();
+      setTimeout(() => setSnapshotToast(null), 3000);
+    } catch {
+      setSnapshotToast({ type: "error", text: "저장 중 오류가 발생했습니다." });
+    } finally {
+      setSavingSnapshot(false);
+    }
+  }, [shopId, savingSnapshot, snapshotNameInput, loadSnapshots]);
+
+  const handleLoadSnapshot = useCallback(async (snapshotId: string) => {
+    if (!shopId || loadingSnapshotId) return;
+    setLoadingSnapshotId(snapshotId);
+    setSnapshotToast(null);
+    try {
+      const res = await fetch(`/api/reports/snapshots/${snapshotId}`, {
+        credentials: "include",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSnapshotToast({ type: "error", text: json?.error ?? "불러오기에 실패했습니다." });
+        return;
+      }
+      const loaded = json.entries as ReportEntry[];
+      if (!Array.isArray(loaded) || loaded.length === 0) {
+        setSnapshotToast({ type: "error", text: "스냅샷에 데이터가 없습니다." });
+        return;
+      }
+      useReportsStore.getState().setEntries(loaded);
+      setSnapshotToast({ type: "success", text: `${loaded.length}건의 데이터를 불러왔습니다.` });
+      setTimeout(() => setSnapshotToast(null), 3000);
+    } catch {
+      setSnapshotToast({ type: "error", text: "불러오기 중 오류가 발생했습니다." });
+    } finally {
+      setLoadingSnapshotId(null);
+    }
+  }, [shopId, loadingSnapshotId]);
+
+  const handleDeleteSnapshot = useCallback(async (snapshotId: string) => {
+    try {
+      const res = await fetch("/api/reports/snapshots", {
+        method: "DELETE",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: snapshotId }),
+      });
+      if (res.ok) {
+        loadSnapshots();
+        if (expandedSnapshotId === snapshotId) setExpandedSnapshotId(null);
+      }
+    } catch { /* ignore */ }
+  }, [loadSnapshots, expandedSnapshotId]);
+
   return (
     <div className="space-y-8">
       <div className="flex items-start justify-between gap-4">
@@ -428,25 +620,34 @@ export default function ReportsPage() {
               CSV 내보내기
             </Button>
           )}
+          {snapshots.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowSnapshotList((v) => !v)}
+            >
+              저장 목록 ({snapshots.length})
+            </Button>
+          )}
           {canUpload && (
-          <UploadDropdown
-            shopId={shopId || (canSelectShop && shops.length > 0 ? shops[0]?.id : null)}
-            noShopMessage={
-              canSelectShop
-                ? "매장을 선택하거나 먼저 매장을 등록해주세요."
-                : "매장에 소속된 계정으로 로그인하거나 매장을 등록하면 업로드할 수 있습니다."
-            }
-          />
+            <UploadDropdown
+              shopId={shopId || (canSelectShop && shops.length > 0 ? shops[0]?.id : null)}
+              noShopMessage={
+                canSelectShop
+                  ? "매장을 선택하거나 먼저 매장을 등록해주세요."
+                  : "매장에 소속된 계정으로 로그인하거나 매장을 등록하면 업로드할 수 있습니다."
+              }
+            />
           )}
         </div>
       </div>
 
       <Card className="border-border/50">
         <CardHeader>
-          <CardTitle>엑셀에서 고객 데이터 가져오기</CardTitle>
+          <CardTitle>파일에서 고객 데이터 가져오기</CardTitle>
           <CardDescription>
-            판매일보 엑셀의 첫 행을 헤더로 인식하며, 다양한 컬럼명을 자동으로 매핑합니다.
-            업로드하면 이 매장의 일보에 추가되고 대시보드 요약에 반영됩니다.
+            판매일보 파일의 첫 행을 헤더로 인식하며, 다양한 컬럼명을 자동으로 매핑합니다. 업로드하면 이 매장의 일보에 추가되고 대시보드 요약에 반영됩니다. 상담(CRM)에서도 파일·구글시트로 가져올 수 있습니다.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -456,7 +657,6 @@ export default function ReportsPage() {
             <p className="text-sm text-muted-foreground">매장에 소속된 계정으로 로그인하거나 매장을 등록하면 업로드할 수 있습니다.</p>
           ) : (
             <>
-              {/* 슈퍼 어드민/지점장: 매장 선택. 개별 매장(매장주/판매사)은 자기 매장만 보임 */}
               {canSelectShop && shops.length > 0 && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground">매장 선택</label>
@@ -473,50 +673,184 @@ export default function ReportsPage() {
                   </select>
                 </div>
               )}
-              {/* 슈퍼 어드민/지점장이 매장이 없으면 안내 메시지, 있으면 업로드 가능 */}
               {canSelectShop && shops.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   매장이 등록되지 않았습니다. 시스템 관리 페이지에서 매장을 등록한 후 업로드할 수 있습니다.
-                  <br />
-                  <span className="text-xs">또는 우측 상단의 + 버튼을 사용하여 업로드할 수 있습니다.</span>
                 </p>
               ) : shopId ? (
-                <ExcelUpload shopId={shopId} />
+                <ExcelUpload
+                  shopId={shopId}
+                  onSave={handleSaveSnapshot}
+                  saving={savingSnapshot}
+                  onSuccess={() => {
+                    requestAnimationFrame(() => {
+                      document.getElementById("report-entries-list")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    });
+                  }}
+                />
               ) : null}
             </>
           )}
         </CardContent>
       </Card>
 
-      {shopId && salesPersonSupportSummary.length > 0 && (
+      {/* 스냅샷 토스트 알림 */}
+      {snapshotToast && (
+        <div
+          className={`rounded-lg border px-4 py-3 text-sm font-medium ${
+            snapshotToast.type === "success"
+              ? "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200"
+              : "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+          }`}
+          role="alert"
+        >
+          {snapshotToast.text}
+        </div>
+      )}
+
+      {/* 저장 목록 패널 */}
+      {showSnapshotList && (
+        <Card className="border-border/50">
+          <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
+            <div>
+              <CardTitle>저장 목록</CardTitle>
+              <CardDescription className="mt-1">이전에 저장한 판매일보 스냅샷을 불러올 수 있습니다.</CardDescription>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowSnapshotList(false)}
+            >
+              닫기
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {snapshotsLoading ? (
+              <p className="text-sm text-muted-foreground">불러오는 중…</p>
+            ) : snapshots.length === 0 ? (
+              <p className="text-sm text-muted-foreground">저장된 스냅샷이 없습니다.</p>
+            ) : (
+              <div className="space-y-2">
+                {snapshots.map((snap) => (
+                  <div
+                    key={snap.id}
+                    className={`rounded-lg border transition-colors ${
+                      expandedSnapshotId === snap.id
+                        ? "border-primary/40 bg-muted/40"
+                        : "border-border/50 hover:bg-muted/20"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left"
+                      onClick={() =>
+                        setExpandedSnapshotId((prev) => (prev === snap.id ? null : snap.id))
+                      }
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-sm truncate">{snap.name}</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">
+                          {snap.entry_count}건 &middot;{" "}
+                          {new Date(snap.created_at).toLocaleString("ko-KR", {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </div>
+                      </div>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={`shrink-0 text-muted-foreground transition-transform ${
+                          expandedSnapshotId === snap.id ? "rotate-180" : ""
+                        }`}
+                      >
+                        <path d="m6 9 6 6 6-6" />
+                      </svg>
+                    </button>
+                    {expandedSnapshotId === snap.id && (
+                      <div className="flex items-center gap-2 border-t border-border/50 px-4 py-2.5">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => handleLoadSnapshot(snap.id)}
+                          disabled={loadingSnapshotId === snap.id}
+                        >
+                          {loadingSnapshotId === snap.id ? "불러오는 중…" : "불러오기"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-950/50 transition-colors"
+                          onClick={() => handleDeleteSnapshot(snap.id)}
+                        >
+                          삭제
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {shopId && hasInvitedStaff && (
         <Card className="border-border/50">
           <CardHeader>
             <CardTitle>판매사별 지원금 내역</CardTitle>
-            <CardDescription>고객에게 지원한 금액을 판매사별로 합산한 내역입니다.</CardDescription>
+            <CardDescription>
+              고객에게 지원한 금액을 판매사별로 합산한 내역입니다. 엑셀에 &quot;담당 판매사&quot;(또는 판매사), &quot;지원금&quot; 컬럼이 있어야 표시됩니다.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-sm">
-                <thead className="border-b border-border/50 bg-muted/60">
-                  <tr>
-                    <th className="px-4 py-3 font-medium text-muted-foreground">판매사</th>
-                    <th className="px-4 py-3 font-medium text-muted-foreground text-right">건수</th>
-                    <th className="px-4 py-3 font-medium text-muted-foreground text-right">지원금 합계</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {salesPersonSupportSummary.map((row) => (
-                    <tr key={row.salesPerson} className="border-b border-border/30">
-                      <td className="px-4 py-3">{row.salesPerson}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{row.count}</td>
-                      <td className="px-4 py-3 text-right tabular-nums font-medium">
-                        {row.totalSupport.toLocaleString()}원
-                      </td>
+            {salesPersonSupportSummary.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left text-sm">
+                  <thead className="border-b border-border/50 bg-muted/60">
+                    <tr>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">판매사</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">건수</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">판매마진 합계</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">지원금 합계</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">비중</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {salesPersonSupportSummary.map((row) => (
+                      <tr key={row.salesPerson} className="border-b border-border/30">
+                        <td className="whitespace-nowrap px-4 py-3">{row.salesPerson}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{row.count}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums font-medium">
+                          {row.totalMargin.toLocaleString()}원
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                          {row.totalSupport.toLocaleString()}원
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-muted-foreground">
+                          {row.percent.toFixed(1)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                표시할 데이터가 없습니다. 판매일보 업로드 시 엑셀 헤더에 &quot;담당 판매사&quot;(또는 판매사), &quot;지원금&quot;이 있으면 매핑되어 여기에 집계됩니다. 매장 설정에서 컬럼 매핑을 확인해 보세요.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
@@ -535,20 +869,20 @@ export default function ReportsPage() {
                 <table className="w-full border-collapse text-left text-sm">
                   <thead className="border-b border-border/50 bg-muted/60">
                     <tr>
-                      <th className="px-4 py-3 font-medium text-muted-foreground">판매사</th>
-                      <th className="px-4 py-3 font-medium text-muted-foreground text-right">건수</th>
-                      <th className="px-4 py-3 font-medium text-muted-foreground text-right">마진 합계</th>
-                      <th className="px-4 py-3 font-medium text-muted-foreground text-right">지원금 합계</th>
-                      <th className="px-4 py-3 font-medium text-muted-foreground text-right">계산 급여</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">판매사</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">건수</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">판매마진 합계</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">지원금 합계</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">계산 급여</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr className="border-b border-border/30">
-                      <td className="px-4 py-3 font-medium">{myPerformanceRow.salesPerson}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{myPerformanceRow.count}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{myPerformanceRow.totalMargin.toLocaleString()}원</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{myPerformanceRow.totalSupport.toLocaleString()}원</td>
-                      <td className="px-4 py-3 text-right tabular-nums font-medium text-primary">
+                      <td className="whitespace-nowrap px-4 py-3 font-medium">{myPerformanceRow.salesPerson}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{myPerformanceRow.count}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{myPerformanceRow.totalMargin.toLocaleString()}원</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{myPerformanceRow.totalSupport.toLocaleString()}원</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums font-medium text-primary">
                         {myPerformanceRow.calculatedSalary.toLocaleString()}원
                       </td>
                     </tr>
@@ -564,48 +898,99 @@ export default function ReportsPage() {
         </Card>
       )}
 
-      {canShowSalary && shopId && salesPersonSalaryRows.length > 0 && (
+      {canShowSalary && shopId && hasInvitedStaff && (
         <Card className="border-border/50">
           <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
             <div>
               <CardTitle>판매사별 급여</CardTitle>
               <CardDescription>
-                판매일보 기준 급여 계산 (건당 3만원 인센티브). 매장주·본사만 조회 가능합니다. 저장 시 DB에 이력이 쌓입니다.
+                판매일보 기준 급여 계산 (건당 인센티브·마진률). 매장주·본사만 조회 가능합니다. &quot;담당 판매사&quot; 컬럼이 있어야 판매사별로 집계됩니다. 저장 시 DB에 이력이 쌓입니다.
               </CardDescription>
             </div>
             <Button
               type="button"
               size="sm"
-              disabled={saveSalaryLoading}
+              disabled={saveSalaryLoading || salesPersonSalaryRows.length === 0}
               onClick={handleSaveSalarySnapshot}
             >
               {saveSalaryLoading ? "저장 중..." : "이번 달 급여 저장"}
             </Button>
           </CardHeader>
           <CardContent>
+            {salesPersonSalaryRows.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left text-sm">
+                  <thead className="border-b border-border/50 bg-muted/60">
+                    <tr>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">판매사</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">건수</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">판매마진 합계</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">비중</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">지원금 합계</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">계산 급여</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const grandMargin = salesPersonSalaryRows.reduce((s, r) => s + r.totalMargin, 0);
+                      return salesPersonSalaryRows.map((row) => {
+                        const pct = grandMargin > 0 ? (row.totalMargin / grandMargin) * 100 : 0;
+                        return (
+                          <tr key={row.salesPerson} className="border-b border-border/30">
+                            <td className="whitespace-nowrap px-4 py-3">{row.salesPerson}</td>
+                            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{row.count}</td>
+                            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{row.totalMargin.toLocaleString()}원</td>
+                            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-muted-foreground">{pct.toFixed(1)}%</td>
+                            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{row.totalSupport.toLocaleString()}원</td>
+                            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums font-medium text-primary">
+                              {row.calculatedSalary.toLocaleString()}원
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                표시할 데이터가 없습니다. 판매일보에 &quot;담당 판매사&quot;(또는 판매사) 컬럼이 있고, 해당 헤더가 매핑되어 있으면 판매사별로 급여가 집계됩니다. 엑셀 업로드 후 매장 설정에서 컬럼 매핑을 확인해 보세요.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {canShowSalary && shopId && hasInvitedStaff && ownerSalaryRow && (
+        <Card className="border-border/50">
+          <CardHeader>
+            <CardTitle>매장주 급여·지원금</CardTitle>
+            <CardDescription>
+              현재 매장 전체 실적을 기준으로 한 매장주 급여·지원금입니다. 판매사별와 동일한 계산식이 적용됩니다.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-sm">
                 <thead className="border-b border-border/50 bg-muted/60">
                   <tr>
-                    <th className="px-4 py-3 font-medium text-muted-foreground">판매사</th>
-                    <th className="px-4 py-3 font-medium text-muted-foreground text-right">건수</th>
-                    <th className="px-4 py-3 font-medium text-muted-foreground text-right">마진 합계</th>
-                    <th className="px-4 py-3 font-medium text-muted-foreground text-right">지원금 합계</th>
-                    <th className="px-4 py-3 font-medium text-muted-foreground text-right">계산 급여</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">구분</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">건수</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">판매마진 합계</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">지원금 합계</th>
+                    <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">계산 급여</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {salesPersonSalaryRows.map((row) => (
-                    <tr key={row.salesPerson} className="border-b border-border/30">
-                      <td className="px-4 py-3">{row.salesPerson}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{row.count}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{row.totalMargin.toLocaleString()}원</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{row.totalSupport.toLocaleString()}원</td>
-                      <td className="px-4 py-3 text-right tabular-nums font-medium text-primary">
-                        {row.calculatedSalary.toLocaleString()}원
-                      </td>
-                    </tr>
-                  ))}
+                  <tr className="border-b border-border/30">
+                    <td className="whitespace-nowrap px-4 py-3">{ownerSalaryRow.salesPerson}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{ownerSalaryRow.count}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{ownerSalaryRow.totalMargin.toLocaleString()}원</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{ownerSalaryRow.totalSupport.toLocaleString()}원</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums font-medium text-primary">
+                      {ownerSalaryRow.calculatedSalary.toLocaleString()}원
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -613,7 +998,7 @@ export default function ReportsPage() {
         </Card>
       )}
 
-      {(canShowSalary || isStaff) && shopId && (
+      {(canShowSalary || isStaff) && shopId && hasInvitedStaff && (
         <Card className="border-border/50">
           <CardHeader className="flex flex-row items-center justify-between gap-6 space-y-0 pb-5">
             <div className="space-y-3">
@@ -657,25 +1042,25 @@ export default function ReportsPage() {
                 <table className="w-full border-collapse text-left text-sm">
                   <thead className="border-b border-border/50 bg-muted/60">
                     <tr>
-                      <th className="px-4 py-3 font-medium text-muted-foreground">기간</th>
-                      <th className="px-4 py-3 font-medium text-muted-foreground">판매사</th>
-                      <th className="px-4 py-3 font-medium text-muted-foreground text-right">건수</th>
-                      <th className="px-4 py-3 font-medium text-muted-foreground text-right">계산 급여</th>
-                      <th className="px-4 py-3 font-medium text-muted-foreground">저장 일시</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">기간</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">판매사</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">건수</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground text-right">계산 급여</th>
+                      <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">저장 일시</th>
                     </tr>
                   </thead>
                   <tbody>
                     {salaryHistory.map((row) => (
                       <tr key={row.id} className="border-b border-border/30">
-                        <td className="px-4 py-3 tabular-nums">
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums">
                           {row.period_start} ~ {row.period_end}
                         </td>
-                        <td className="px-4 py-3">{row.sales_person}</td>
-                        <td className="px-4 py-3 text-right tabular-nums">{row.sale_count}</td>
-                        <td className="px-4 py-3 text-right tabular-nums font-medium">
+                        <td className="whitespace-nowrap px-4 py-3">{row.sales_person}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{row.sale_count}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums font-medium">
                           {Number(row.calculated_salary).toLocaleString()}원
                         </td>
-                        <td className="px-4 py-3 text-muted-foreground">
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                           {row.created_at ? new Date(row.created_at).toLocaleString("ko-KR") : "—"}
                         </td>
                       </tr>
@@ -701,26 +1086,43 @@ export default function ReportsPage() {
         </div>
       )}
 
-      <Card className="border-border/50">
+      <Card id="report-entries-list" className="border-border/50 scroll-mt-4">
         <CardHeader className="flex flex-row items-center justify-between gap-6 space-y-0 pb-5">
           <div className="min-w-0 flex-1 space-y-3">
             <CardTitle>추출된 고객 목록</CardTitle>
             <CardDescription className="mt-0">
-              판매사·고객명·연락처·개통단말기·통신사·요금제·거래 후 최종 마진을 표시합니다. 대시보드 오늘 개통/예상 마진에 반영됩니다.
+              판매사·고객명·연락처·모델·일련번호·통신사·요금제·거래 후 판매마진을 표시합니다. 대시보드 오늘 개통/예상 판매마진에 반영됩니다.
               {isBranchUser && " (개별 매장은 본인 매장 데이터만 조회됩니다.)"}
             </CardDescription>
           </div>
-          {entries.length > 0 && shopId && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => useReportsStore.getState().clearByShop(shopId)}
-              className="text-muted-foreground"
-            >
-              전체 삭제
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {entries.length > 0 && (
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={reportSelectAllOnPage}>
+                  전체선택
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={reportClearSelection}
+                  disabled={reportSelectedIds.length === 0}
+                >
+                  선택해제
+                </Button>
+              </>
+            )}
+            {entries.length > 0 && shopId && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => useReportsStore.getState().clearByShop(shopId)}
+                className="bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-950/50 transition-colors"
+              >
+                전체 삭제
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {entriesRaw.filter((e) => e.shopId === shopId).length === 0 ? (
@@ -811,7 +1213,7 @@ export default function ReportsPage() {
                               총액: {group.totalAmount.toLocaleString()}원
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              총 마진: {group.totalMargin.toLocaleString()}원
+                              총 판매마진: {group.totalMargin.toLocaleString()}원
                             </div>
                           </div>
                         </div>
@@ -821,11 +1223,12 @@ export default function ReportsPage() {
                           <table className="w-full border-collapse text-left text-sm">
                             <thead className="border-b border-border/50 bg-muted/60">
                               <tr>
-                                <th className="px-3 py-2 font-medium text-muted-foreground">No.</th>
-                                <th className="px-3 py-2 font-medium text-muted-foreground">판매일</th>
-                                <th className="px-3 py-2 font-medium text-muted-foreground">개통단말기</th>
-                                <th className="px-3 py-2 font-medium text-muted-foreground text-right">금액</th>
-                                <th className="px-3 py-2 font-medium text-muted-foreground text-right">최종 마진</th>
+                                <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">No.</th>
+                                <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">판매일</th>
+                                <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">모델</th>
+                                <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">일련번호</th>
+                                <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground text-right">금액</th>
+                                <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground text-right">판매마진</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -834,19 +1237,20 @@ export default function ReportsPage() {
                                   key={transaction.id}
                                   className="border-b border-border/30 hover:bg-muted/30"
                                 >
-                                  <td className="px-3 py-2 tabular-nums">{idx + 1}</td>
-                                  <td className="px-3 py-2">
+                                  <td className="whitespace-nowrap px-3 py-2 tabular-nums">{idx + 1}</td>
+                                  <td className="whitespace-nowrap px-3 py-2">
                                     {transaction.saleDate
                                       ? transaction.saleDate.slice(0, 10)
                                       : "—"}
                                   </td>
-                                  <td className="px-3 py-2">{transaction.productName || "—"}</td>
-                                  <td className="px-3 py-2 text-right tabular-nums">
+                                  <td className="whitespace-nowrap px-3 py-2">{transaction.productName || "—"}</td>
+                                  <td className="whitespace-nowrap px-3 py-2">{transaction.serialNumber || "—"}</td>
+                                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
                                     {transaction.amount != null
                                       ? transaction.amount.toLocaleString()
                                       : "—"}
                                   </td>
-                                  <td className="px-3 py-2 text-right tabular-nums">
+                                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
                                     {transaction.margin != null
                                       ? transaction.margin.toLocaleString()
                                       : "—"}
@@ -855,13 +1259,13 @@ export default function ReportsPage() {
                               ))}
                               {/* 합계 행 */}
                               <tr className="border-t-2 border-border bg-muted/40 font-semibold">
-                                <td className="px-3 py-2" colSpan={3}>
+                                <td className="whitespace-nowrap px-3 py-2" colSpan={4}>
                                   합계
                                 </td>
-                                <td className="px-3 py-2 text-right tabular-nums">
+                                <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
                                   {group.totalAmount.toLocaleString()}원
                                 </td>
-                                <td className="px-3 py-2 text-right tabular-nums text-primary">
+                                <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-primary">
                                   {group.totalMargin.toLocaleString()}원
                                 </td>
                               </tr>
@@ -873,61 +1277,90 @@ export default function ReportsPage() {
                   ))}
                 </div>
                   ) : (
-                    // 검색어가 있지만 그룹화되지 않은 경우: 전체 목록 뷰
+                    // 검색어가 있지만 그룹화되지 않은 경우: 전체 목록 뷰 (페이지네이션·전체선택)
                     <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-left text-sm">
+                  <table className="w-full min-w-[1200px] border-collapse text-left text-sm">
                     <thead className="border-b border-border/50 bg-muted/60">
                       <tr>
-                        <th className="px-3 py-2 font-medium text-muted-foreground">No.</th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground">판매사</th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground">고객명</th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground">연락처</th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground">개통단말기</th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground">통신사</th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground">요금제</th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground">판매일</th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground text-right">금액</th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground text-right">최종 마진</th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground text-right">지원금</th>
-                        <th className="px-3 py-2 font-medium text-muted-foreground w-24">작업</th>
+                        <th className="w-10 whitespace-nowrap px-2 py-2 text-center">
+                          <input
+                            type="checkbox"
+                            ref={reportSelectAllCheckboxRef}
+                            checked={reportAllOnPageSelected}
+                            onChange={() =>
+                              reportAllOnPageSelected
+                                ? setReportSelectedIds((prev) => prev.filter((id) => !pageEntries.some((entry) => entry.id === id)))
+                                : reportSelectAllOnPage()
+                            }
+                            className="h-4 w-4 rounded border-input"
+                            aria-label="현재 페이지 전체선택"
+                          />
+                        </th>
+                        <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">No.</th>
+                        {hasInvitedStaff && <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">판매사</th>}
+                        <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">고객명</th>
+                        <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">연락처</th>
+                        <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">모델</th>
+                        <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">일련번호</th>
+                        <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">통신사</th>
+                        <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">요금제</th>
+                        <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">판매일</th>
+                        <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground text-right">금액</th>
+                        <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground text-right">판매마진</th>
+                        <th className="whitespace-nowrap px-3 py-2 font-medium text-muted-foreground text-right">지원금</th>
+                        <th className="w-24 whitespace-nowrap px-3 py-2 font-medium text-muted-foreground">작업</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {entries.map((e, i) => (
+                      {pageEntries.map((e, i) => (
                         editingId === e.id && editDraft ? (
                           <tr key={e.id} className="border-b border-border/50 bg-muted/30">
-                            <td className="px-2 py-1.5 tabular-nums text-muted-foreground">{i + 1}</td>
-                            <td className="px-2 py-1.5">
-                              <Input className="h-8 text-sm" value={editDraft.salesPerson ?? ""} onChange={(ev) => setEditDraft((d) => ({ ...d, salesPerson: ev.target.value }))} placeholder="판매사" />
+                            <td className="w-10 px-2 py-1.5 text-center">
+                              <input
+                                type="checkbox"
+                                checked={reportSelectedIds.includes(e.id)}
+                                onChange={() => reportToggleOne(e.id)}
+                                className="h-4 w-4 rounded border-input"
+                                aria-label={`${e.name ?? ""} 선택`}
+                              />
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-muted-foreground">{(reportPage - 1) * REPORTS_PER_PAGE + i + 1}</td>
+                            {hasInvitedStaff && (
+                              <td className="whitespace-nowrap px-2 py-1.5">
+                                <Input className="h-8 text-sm" value={editDraft.salesPerson ?? ""} onChange={(ev) => setEditDraft((d) => ({ ...d, salesPerson: ev.target.value }))} placeholder="판매사" />
+                              </td>
+                            )}
+                            <td className="whitespace-nowrap px-2 py-1.5">
                               <Input className="h-8 text-sm" value={editDraft.name ?? ""} onChange={(ev) => setEditDraft((d) => ({ ...d, name: ev.target.value }))} placeholder="고객명" />
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className="whitespace-nowrap px-2 py-1.5">
                               <Input className="h-8 text-sm" value={editDraft.phone ?? ""} onChange={(ev) => setEditDraft((d) => ({ ...d, phone: ev.target.value }))} placeholder="연락처" />
                             </td>
-                            <td className="px-2 py-1.5">
-                              <Input className="h-8 text-sm" value={editDraft.productName ?? ""} onChange={(ev) => setEditDraft((d) => ({ ...d, productName: ev.target.value }))} placeholder="개통단말기" />
+                            <td className="whitespace-nowrap px-2 py-1.5">
+                              <Input className="h-8 text-sm" value={editDraft.productName ?? ""} onChange={(ev) => setEditDraft((d) => ({ ...d, productName: ev.target.value }))} placeholder="모델" />
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className="whitespace-nowrap px-2 py-1.5">
+                              <Input className="h-8 text-sm" value={editDraft.serialNumber ?? ""} onChange={(ev) => setEditDraft((d) => ({ ...d, serialNumber: ev.target.value }))} placeholder="일련번호" />
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-1.5">
                               <Input className="h-8 text-sm" value={editDraft.existingCarrier ?? ""} onChange={(ev) => setEditDraft((d) => ({ ...d, existingCarrier: ev.target.value }))} placeholder="통신사" />
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className="whitespace-nowrap px-2 py-1.5">
                               <Input className="h-8 text-sm" value={editDraft.planName ?? ""} onChange={(ev) => setEditDraft((d) => ({ ...d, planName: ev.target.value }))} placeholder="요금제" />
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className="whitespace-nowrap px-2 py-1.5">
                               <Input className="h-8 text-sm" type="date" value={editDraft.saleDate?.slice(0, 10) ?? ""} onChange={(ev) => setEditDraft((d) => ({ ...d, saleDate: ev.target.value || "" }))} />
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className="whitespace-nowrap px-2 py-1.5">
                               <Input className="h-8 text-sm text-right" type="number" value={editDraft.amount ?? ""} onChange={(ev) => setEditDraft((d) => ({ ...d, amount: Number(ev.target.value) || 0 }))} placeholder="금액" />
                             </td>
-                            <td className="px-2 py-1.5">
-                              <Input className="h-8 text-sm text-right" type="number" value={editDraft.margin ?? ""} onChange={(ev) => setEditDraft((d) => ({ ...d, margin: Number(ev.target.value) || 0 }))} placeholder="최종 마진" />
+                            <td className="whitespace-nowrap px-2 py-1.5">
+                              <Input className="h-8 text-sm text-right" type="number" value={editDraft.margin ?? ""} onChange={(ev) => setEditDraft((d) => ({ ...d, margin: Number(ev.target.value) || 0 }))} placeholder="판매마진" />
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className="whitespace-nowrap px-2 py-1.5">
                               <Input className="h-8 text-sm text-right" type="number" value={editDraft.supportAmount ?? ""} onChange={(ev) => setEditDraft((d) => ({ ...d, supportAmount: Number(ev.target.value) || 0 }))} placeholder="지원금" />
                             </td>
-                            <td className="px-2 py-1.5">
+                            <td className="whitespace-nowrap px-2 py-1.5">
                               <div className="flex gap-1">
                                 <Button type="button" size="sm" variant="default" className="h-8 text-xs" onClick={() => {
                                   const rest = (({ id: _i, shopId: _s, uploadedAt: _u, ...r }) => r)(editDraft);
@@ -941,29 +1374,39 @@ export default function ReportsPage() {
                           </tr>
                         ) : (
                           <tr key={e.id} className="border-b border-border/50 hover:bg-muted/20">
-                            <td className="px-3 py-2 tabular-nums">{i + 1}</td>
-                            <td className="px-3 py-2">{e.salesPerson || "—"}</td>
-                            <td className="px-3 py-2">{e.name || "—"}</td>
-                            <td className="px-3 py-2">{e.phone || "—"}</td>
-                            <td className="px-3 py-2">{e.productName || "—"}</td>
-                            <td className="px-3 py-2">{e.existingCarrier || "—"}</td>
-                            <td className="px-3 py-2">{e.planName || "—"}</td>
-                            <td className="px-3 py-2">
+                            <td className="w-10 px-2 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={reportSelectedIds.includes(e.id)}
+                                onChange={() => reportToggleOne(e.id)}
+                                className="h-4 w-4 rounded border-input"
+                                aria-label={`${e.name ?? ""} 선택`}
+                              />
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 tabular-nums">{(reportPage - 1) * REPORTS_PER_PAGE + i + 1}</td>
+                            {hasInvitedStaff && <td className="whitespace-nowrap px-3 py-2">{e.salesPerson || "—"}</td>}
+                            <td className="whitespace-nowrap px-3 py-2">{e.name || "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-2">{e.phone || "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-2">{e.productName || "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-2">{e.serialNumber || "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-2">{e.existingCarrier || "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-2">{e.planName || "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-2">
                               {e.saleDate ? e.saleDate.slice(0, 10) : "—"}
                             </td>
-                            <td className="px-3 py-2 text-right tabular-nums">
+                            <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
                               {e.amount != null ? e.amount.toLocaleString() : "—"}
                             </td>
-                            <td className="px-3 py-2 text-right tabular-nums">
+                            <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
                               {e.margin != null ? e.margin.toLocaleString() : "—"}
                             </td>
-                            <td className="px-3 py-2 text-right tabular-nums">
+                            <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
                               {e.supportAmount != null ? e.supportAmount.toLocaleString() : "—"}
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="whitespace-nowrap px-3 py-2">
                               <div className="flex gap-1">
                                 <Button type="button" size="sm" variant="ghost" className="h-8 text-xs text-muted-foreground hover:text-foreground" onClick={() => { setEditingId(e.id); setEditDraft({ ...e }); }}>수정</Button>
-                                <Button type="button" size="sm" variant="ghost" className="h-8 text-xs text-destructive hover:text-destructive" onClick={() => { if (typeof window !== "undefined" && window.confirm("이 행을 삭제할까요?")) deleteEntry(e.id); }}>삭제</Button>
+                                <Button type="button" size="sm" className="h-8 text-xs bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-950/50 transition-colors" onClick={() => { if (typeof window !== "undefined" && window.confirm("이 행을 삭제할까요?")) deleteEntry(e.id); }}>삭제</Button>
                               </div>
                             </td>
                           </tr>
@@ -971,6 +1414,30 @@ export default function ReportsPage() {
                       ))}
                     </tbody>
                   </table>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-4">
+                    <p className="text-sm text-muted-foreground">
+                      {(reportPage - 1) * REPORTS_PER_PAGE + 1}–
+                      {Math.min(reportPage * REPORTS_PER_PAGE, entries.length)} / {entries.length}건
+                    </p>
+                    <div className="flex flex-wrap items-center justify-center gap-1">
+                      {reportPaginationNumbers.map((p, idx) =>
+                        p === "ellipsis" ? (
+                          <span key={`ellipsis-${idx}`} className="px-1 text-sm text-muted-foreground">…</span>
+                        ) : (
+                          <Button
+                            key={p}
+                            type="button"
+                            variant={p === reportPage ? "default" : "outline"}
+                            size="sm"
+                            className="min-w-[2rem]"
+                            onClick={() => setReportPage(p)}
+                          >
+                            {p}
+                          </Button>
+                        )
+                      )}
+                    </div>
+                  </div>
                 </div>
                   )}
                 </>

@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabaseAdmin } from "@/server/supabase";
 import { getAuthFromCookies } from "@/server/auth";
 import { NoticeEditLink } from "./notice-edit-link";
+import { NoticeDeleteButton } from "./notice-delete-button";
 import { NoticeComments } from "./notice-comments";
 import { MentionText } from "@/components/notices/mention-text";
 
@@ -77,10 +78,19 @@ export default async function NoticeDetailPage({
 
   const auth = await getAuthFromCookies();
   const currentUserId = auth?.id ?? "";
-  const canDeleteAll =
-    auth?.role === "super_admin" ||
-    auth?.role === "region_manager" ||
-    auth?.role === "tenant_admin";
+  const currentRole = auth?.role ?? null;
+  const isOwner = notice.author_id && auth?.id ? notice.author_id === auth.id : false;
+  const isNotice = notice.type === "notice" || !notice.type;
+
+  // 삭제 버튼 노출 여부 (실제 권한 검사는 API에서 한 번 더 수행)
+  let canDelete = false;
+  if (currentRole === "super_admin") {
+    canDelete = true;
+  } else if (currentRole === "tenant_admin") {
+    canDelete = isOwner;
+  } else if (currentRole === "staff") {
+    canDelete = isOwner && !isNotice;
+  }
 
   return (
     <div className="space-y-6">
@@ -90,7 +100,10 @@ export default async function NoticeDetailPage({
             ← 목록
           </Button>
         </Link>
-        <NoticeEditLink noticeId={notice.id} authorId={notice.author_id} type={notice.type} />
+        <div className="ml-auto flex items-center gap-2">
+          <NoticeEditLink noticeId={notice.id} authorId={notice.author_id} type={notice.type} />
+          {canDelete && <NoticeDeleteButton noticeId={notice.id} />}
+        </div>
       </div>
 
       <Card className="border-border/80">
@@ -120,7 +133,7 @@ export default async function NoticeDetailPage({
         <NoticeComments
           noticeId={notice.id}
           currentUserId={currentUserId}
-          canDeleteAll={!!canDeleteAll}
+          canDeleteAll={currentRole === "super_admin" || currentRole === "tenant_admin"}
         />
       )}
     </div>

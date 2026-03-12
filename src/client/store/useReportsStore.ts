@@ -11,7 +11,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { useAuthStore } from "@/client/store/useAuthStore";
+
 
 /**
  * 엑셀에서 추출한 판매일보 한 건 (고객 + 판매 요약)
@@ -88,6 +88,11 @@ export interface ReportEntry {
   serialNumber?: string;
   /** 개통 시간 (스프레드시트) */
   activationTime?: string;
+
+  /** 적용된 추가 할인 항목 id 배열 (층층이 쌓인 추가 할인) */
+  additionalDiscountIds?: string[];
+  /** 적용된 추가 할인 합계 (정책 마진에서 차감) */
+  additionalDiscountAmount?: number;
 }
 
 /**
@@ -162,18 +167,12 @@ export const useReportsStore = create<ReportsState>()(
           if (role) params.set("role", role);
           if (shopId) params.set("shop_id", shopId);
 
-          // super_admin / region_manager는 shopId 없이 지점·전체 조회 가능
-          if (role !== "super_admin" && role !== "region_manager" && !shopId) {
+          if (role !== "super_admin" && !shopId) {
             return;
           }
 
           const query = params.toString();
-          const headers: Record<string, string> = {};
-          if (role === "region_manager") {
-            const storeGroupId = useAuthStore.getState().user?.storeGroupId;
-            if (storeGroupId) headers["x-store-group-id"] = storeGroupId;
-          }
-          const res = await fetch(`/api/reports${query ? `?${query}` : ""}`, { headers });
+          const res = await fetch(`/api/reports${query ? `?${query}` : ""}`, { credentials: "include" });
           const json = await res.json().catch(() => [] as ReportEntry[]);
 
           if (!res.ok) {
@@ -214,9 +213,8 @@ export const useReportsStore = create<ReportsState>()(
 
           const res = await fetch("/api/reports", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ reports: newEntries }),
           });
 
@@ -234,10 +232,28 @@ export const useReportsStore = create<ReportsState>()(
       setEntries: (entries) => set({ entries }),
 
       clearByShop: async (shopId) => {
-        const { entries, deleteEntry } = get();
-        const targets = entries.filter((e) => e.shopId === shopId);
-        // 각 항목에 대해 개별 삭제 API 호출
-        await Promise.all(targets.map((e) => deleteEntry(e.id)));
+        try {
+          // 서버에서 해당 매장의 판매일보를 일괄 삭제
+          const res = await fetch("/api/reports", {
+            method: "DELETE",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ shop_id: shopId }),
+          });
+
+          if (!res.ok) {
+            const json = await res.json().catch(() => ({}));
+            console.error("[ReportsStore] 매장 전체 삭제 실패", json);
+            return;
+          }
+
+          // 클라이언트 상태에서도 해당 매장 데이터 제거
+          set((state) => ({
+            entries: state.entries.filter((e) => e.shopId !== shopId),
+          }));
+        } catch (error) {
+          console.error("[ReportsStore] 매장 전체 삭제 중 오류", error);
+        }
       },
 
       getEntriesByShop: (shopId) =>
@@ -279,9 +295,8 @@ export const useReportsStore = create<ReportsState>()(
         try {
           const res = await fetch("/api/reports", {
             method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-            },
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id, updates }),
           });
 
@@ -308,9 +323,8 @@ export const useReportsStore = create<ReportsState>()(
         try {
           const res = await fetch("/api/reports", {
             method: "DELETE",
-            headers: {
-              "Content-Type": "application/json",
-            },
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id }),
           });
 

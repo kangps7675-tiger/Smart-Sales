@@ -381,9 +381,8 @@ export default function CalendarPage() {
                                   </Button>
                                   <Button
                                     type="button"
-                                    variant="ghost"
                                     size="sm"
-                                    className="h-5 px-1 text-xs text-destructive hover:text-destructive"
+                                    className="h-5 px-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-950/50 transition-colors"
                                     onClick={() => deleteTodo(t.id)}
                                   >
                                     삭제

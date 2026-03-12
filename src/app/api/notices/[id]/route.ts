@@ -85,13 +85,11 @@ export async function PATCH(
 
     // 수정 권한:
     // - super_admin: 모든 공지/글 수정 가능
-    // - region_manager / tenant_admin:
-    //   - notice/post 모두 자기 글만 수정 가능
-    // - staff:
-    //   - post만 자기 글 수정 가능 (notice 수정 불가)
+    // - tenant_admin: notice/post 모두 자기 글만 수정 가능
+    // - staff: post만 자기 글 수정 가능 (notice 수정 불가)
     if (auth.role === "super_admin") {
       // always allowed
-    } else if (auth.role === "region_manager" || auth.role === "tenant_admin") {
+    } else if (auth.role === "tenant_admin") {
       if (!isOwner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     } else if (auth.role === "staff") {
       if (!isOwner || isNotice) return NextResponse.json({ error: "Forbidden" }, { status: 403 });

@@ -43,11 +43,11 @@ export default function CustomersPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedShopId, setSelectedShopId] = useState(userShopId || (shops[0]?.id ?? ""));
+  const [hasInvitedStaff, setHasInvitedStaff] = useState(false);
 
   const isSuperAdmin = user?.role === "super_admin";
-  const isRegionManager = user?.role === "region_manager";
   const isBranchUser = user?.role === "tenant_admin" || user?.role === "staff";
-  const canSelectShop = isSuperAdmin || isRegionManager;
+  const canSelectShop = isSuperAdmin;
   const shopId = isBranchUser
     ? userShopId
     : (selectedShopId || userShopId || (shops[0]?.id ?? ""));
@@ -60,13 +60,21 @@ export default function CustomersPage() {
    * 서버에서 판매일보 데이터 불러오기
    *
    * - ReportsPage와 동일한 로직으로 /api/reports GET 호출
-   * - super_admin/region_manager: 선택 매장 또는 전체/지점
+   * - super_admin: 선택 매장 또는 전체
    * - tenant_admin/staff: 본인 매장만 조회
    */
   useEffect(() => {
     if (!user || !shopId) return;
     loadEntries(shopId, user.role);
   }, [user, shopId, loadEntries]);
+
+  useEffect(() => {
+    if (!shopId || (user?.role !== "tenant_admin" && user?.role !== "super_admin")) return;
+    fetch(`/api/shops/staff?shop_id=${shopId}`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : [])
+      .then((list: unknown[]) => setHasInvitedStaff(list.length > 0))
+      .catch(() => setHasInvitedStaff(false));
+  }, [shopId, user?.role]);
 
   const shopEntries = useMemo(
     () => entriesRaw.filter((e) => e.shopId === shopId),
@@ -239,7 +247,7 @@ export default function CustomersPage() {
                   <tr>
                     <th className="px-3 py-2.5 font-medium text-muted-foreground">고객명</th>
                     <th className="px-3 py-2.5 font-medium text-muted-foreground">연락처</th>
-                    <th className="px-3 py-2.5 font-medium text-muted-foreground">담당 판매사</th>
+                    {hasInvitedStaff && <th className="px-3 py-2.5 font-medium text-muted-foreground">담당 판매사</th>}
                     <th className="px-3 py-2.5 font-medium text-muted-foreground">최근 거래일</th>
                     <th className="px-3 py-2.5 font-medium text-muted-foreground">최근 단말기/요금제</th>
                     <th className="px-3 py-2.5 font-medium text-muted-foreground">유입 경로</th>
@@ -255,7 +263,7 @@ export default function CustomersPage() {
                       <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
                         {c.phone || "—"}
                       </td>
-                      <td className="px-3 py-2 text-muted-foreground">{c.lastSalesPerson}</td>
+                      {hasInvitedStaff && <td className="px-3 py-2 text-muted-foreground">{c.lastSalesPerson}</td>}
                       <td className="px-3 py-2 tabular-nums">
                         {c.lastSaleDate ? c.lastSaleDate.slice(0, 10) : "—"}
                       </td>

@@ -83,3 +83,35 @@ export function getSalesPersonSalaryRows(
     calculatedSalary: calcSalaryFromSummary(s, options),
   }));
 }
+
+/** 매장 전체 합계 → 매장주 1인분 집계 (급여 계산에 사용) */
+export function getOwnerSummary(entries: ReportEntry[]): SalesPersonSummary | null {
+  if (entries.length === 0) return null;
+  let count = 0;
+  let totalMargin = 0;
+  let totalSupport = 0;
+  for (const e of entries) {
+    count += 1;
+    totalMargin += e.margin ?? 0;
+    totalSupport += e.supportAmount ?? 0;
+  }
+  return {
+    salesPerson: "매장주",
+    count,
+    totalMargin,
+    totalSupport,
+  };
+}
+
+/** 매장주 급여·지원금 한 행 (계산 급여 포함) */
+export function getOwnerSalaryRow(
+  entries: ReportEntry[],
+  options?: SalaryCalcOptions
+): (SalesPersonSummary & { calculatedSalary: number }) | null {
+  const summary = getOwnerSummary(entries);
+  if (!summary) return null;
+  return {
+    ...summary,
+    calculatedSalary: calcSalaryFromSummary(summary, options),
+  };
+}

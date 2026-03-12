@@ -15,20 +15,26 @@
 
 import { useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { parseExcelToReportEntries } from "@/lib/excel-report";
-import type { ReportImportConfig } from "@/lib/report-entry-map";
 import type { ReportEntry } from "@/client/store/useReportsStore";
+import { useAuthStore } from "@/client/store/useAuthStore";
 import { useReportsStore } from "@/client/store/useReportsStore";
 import { usePolicyStore } from "@/client/store/usePolicyStore";
 import { cn } from "@/lib/utils";
 
+
 interface ExcelUploadProps {
   shopId: string;
   onParsed?: (entries: Omit<ReportEntry, "id" | "uploadedAt">[], errors: string[]) => void;
+  /** 분석 성공 후 호출 (목록 갱신 후, 추출된 고객 목록으로 스크롤 등) */
+  onSuccess?: () => void;
+  /** 저장 버튼 클릭 핸들러 */
+  onSave?: () => void;
+  /** 저장 중 여부 */
+  saving?: boolean;
 }
 
-const ACCEPT = ".xlsx,.xls";
-const ACCEPT_LIST = [".xlsx", ".xls"];
+const ACCEPT = ".xlsx,.xls,.csv";
+const ACCEPT_LIST = [".xlsx", ".xls", ".csv"];
 
 function isExcelFile(file: File): boolean {
   const name = file.name.toLowerCase();
@@ -58,10 +64,19 @@ function fillMarginsFromPolicy(
   });
 }
 
-export function ExcelUpload({ shopId, onParsed }: ExcelUploadProps) {
+const DEBUG_UPLOAD = typeof window !== "undefined" && process.env.NODE_ENV === "development";
+const logUploadDebug = (step: string, payload: Record<string, unknown>) => {
+  if (!DEBUG_UPLOAD || typeof window === "undefined") return;
+  // eslint-disable-next-line no-console
+  console.log("[ExcelUploadDebug]", step, {
+    ...payload,
+    userAgent: window.navigator.userAgent,
+  });
+};
+
+export function ExcelUpload({ shopId, onParsed, onSuccess, onSave, saving }: ExcelUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [fileHash, setFileHash] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -76,11 +91,20 @@ export function ExcelUpload({ shopId, onParsed }: ExcelUploadProps) {
     async (selectedFile: File | null) => {
       if (!selectedFile) return;
       if (!isExcelFile(selectedFile)) {
-        showToast("error", "엑셀 파일(.xlsx, .xls)만 업로드 가능합니다.");
+        showToast("error", "엑셀/CSV 파일(.xlsx, .xls, .csv)만 업로드 가능합니다.");
+        logUploadDebug("file:invalid-extension", {
+          fileName: selectedFile.name,
+          fileSize: selectedFile.size,
+          fileType: selectedFile.type,
+        });
         return;
       }
+      logUploadDebug("file:selected", {
+        fileName: selectedFile.name,
+        fileSize: selectedFile.size,
+        fileType: selectedFile.type,
+      });
       setFile(selectedFile);
-      setFileHash(null);
     },
     [showToast]
   );
@@ -105,82 +129,107 @@ export function ExcelUpload({ shopId, onParsed }: ExcelUploadProps) {
 
   const handleDragLeave = () => setDragActive(false);
 
+  const handleClearShopData = async () => {
+    if (!shopId) {
+      showToast("error", "매장 정보가 없습니다. 다시 로그인해 주세요.");
+      return;
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("이 매장의 판매일보 데이터를 모두 삭제할까요?")
+    ) {
+      return;
+    }
+
+    setLoading(true);
+    setToast(null);
+    try {
+      await useReportsStore.getState().clearByShop(shopId);
+      logUploadDebug("clear-shop:success", { shopId });
+      showToast("success", "이 매장의 판매일보 데이터를 모두 삭제했습니다.");
+    } catch (err) {
+      logUploadDebug("clear-shop:error", {
+        shopId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      showToast("error", "데이터 삭제 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const analyzeAndSave = async () => {
     if (!file || !shopId) {
       showToast("error", "파일을 선택한 뒤 데이터 분석하기를 눌러주세요.");
       return;
     }
+    logUploadDebug("analyze:start", {
+      shopId,
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+    });
     setLoading(true);
     setToast(null);
     try {
-      // 파일 해시 계산 (SHA-256) 후 중복 업로드인지 서버에 확인
-      let hash = fileHash;
-      if (!hash) {
-        const buffer = await file.arrayBuffer();
-        const digest = await crypto.subtle.digest("SHA-256", buffer);
-        const hashArray = Array.from(new Uint8Array(digest));
-        hash = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-        setFileHash(hash);
-      }
+      const form = new FormData();
+      form.append("shop_id", shopId);
+      form.append("overwrite", "true");
+      form.append("file", file);
 
-      try {
-        const dupRes = await fetch("/api/reports/check-duplicate", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            file_hash: hash,
-            shop_id: shopId,
-          }),
-        });
-        const dupJson = await dupRes.json().catch(() => ({} as any));
-        if (dupRes.status === 409 || dupJson?.duplicate) {
-          showToast("error", "이미 업로드한 파일입니다. 중복 업로드를 방지하기 위해 처리하지 않았습니다.");
-          setLoading(false);
-          return;
-        }
-      } catch (dupErr) {
-        console.error("[Reports] 중복 업로드 체크 실패", dupErr);
-        // 중복 체크 실패 시에도 업로드 자체는 계속 진행
-      }
-
-      let importConfig: ReportImportConfig | null = null;
-      try {
-        const settingsRes = await fetch(`/api/shop-settings?shop_id=${encodeURIComponent(shopId)}`);
-        if (settingsRes.ok) {
-          const settings = await settingsRes.json();
-          if (settings.report_import_config && typeof settings.report_import_config === "object") {
-            importConfig = settings.report_import_config as ReportImportConfig;
-          }
-        }
-      } catch {
-        // 설정 없으면 기본 매핑 사용
-      }
-
-      const { entries: rawEntries, errors } = await parseExcelToReportEntries(file, shopId, {
-        config: importConfig ?? undefined,
+      const res = await fetch("/api/reports/import-file", {
+        method: "POST",
+        body: form,
       });
-      const entries = fillMarginsFromPolicy(rawEntries);
+      const json = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        const sampleRows = Array.isArray(json?.debugSampleRows) ? json.debugSampleRows as string[][] : [];
+        const sampleNote = sampleRows.length > 0
+          ? ` [파일 내용: ${sampleRows.map((r: string[]) => r.join(", ")).join(" | ")}]`
+          : "";
+        const headersNote =
+          !sampleNote && Array.isArray(json?.detectedHeaders) && json.detectedHeaders.length > 0
+            ? ` [파일 헤더: ${(json.detectedHeaders as string[]).slice(0, 12).join(", ")}${json.detectedHeaders.length > 12 ? " …" : ""}]`
+            : "";
+        logUploadDebug("analyze:server-error", {
+          shopId,
+          fileName: file.name,
+          error: json?.error ?? "server error",
+          detectedHeaders: json?.detectedHeaders,
+          debugSampleRows: json?.debugSampleRows,
+        });
+        const errMsg = json?.detail
+          ? `${json.error ?? "저장 실패"}: ${json.detail}`
+          : `${json?.error ?? "파일 처리 중 오류가 발생했습니다."}${sampleNote || headersNote} (총 ${json?.debugTotalRows ?? "?"}행)`;
+        showToast("error", errMsg);
+        return;
+      }
 
-      if (entries.length > 0) {
-        useReportsStore.getState().addEntries(entries);
-        showToast(
-          "success",
-          `${entries.length}건을 불러왔습니다. 마진은 정책 단가로 자동 반영되었습니다.`
-        );
-        onParsed?.(entries, errors);
+      const role = useAuthStore.getState().user?.role;
+      await useReportsStore.getState().loadEntries(shopId, role);
+
+      const insertedCount = Number(json?.insertedCount ?? 0);
+      if (json?._debug) {
+        console.log("[upload-debug] headerMapping:", json._debug.headerMapping);
+        console.log("[upload-debug] productName column:", json._debug.productNameColumn);
+        console.log("[upload-debug] sampleProductName:", json._debug.sampleProductName);
+        console.log("[upload-debug] dbSampleProductName:", json._debug.dbSampleProductName);
       }
-      if (errors.length > 0) {
-        showToast("error", errors.join(" "));
-      }
-      if (entries.length === 0 && errors.length === 0) {
-        showToast(
-          "error",
-          "추출된 데이터가 없습니다. 첫 행에 헤더가 있는지 확인해 주세요."
-        );
-      }
+      logUploadDebug("analyze:success", {
+        shopId,
+        fileName: file.name,
+        insertedCount,
+      });
+      showToast("success", `${insertedCount.toLocaleString()}건이 저장되었습니다.`);
+      onParsed?.([], Array.isArray(json?.errors) ? json.errors : []);
+      onSuccess?.();
     } catch (err) {
+      logUploadDebug("analyze:exception", {
+        shopId,
+        fileName: file?.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
       showToast("error", err instanceof Error ? err.message : "엑셀 처리 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
@@ -216,7 +265,7 @@ export function ExcelUpload({ shopId, onParsed }: ExcelUploadProps) {
         )}
       >
         <p className="text-sm text-muted-foreground">
-          엑셀 파일을 여기에 놓거나, 아래 버튼으로 선택하세요.
+          엑셀/CSV 파일을 여기에 놓거나, 아래 버튼으로 선택하세요.
         </p>
         <Button
           type="button"
@@ -229,20 +278,64 @@ export function ExcelUpload({ shopId, onParsed }: ExcelUploadProps) {
         </Button>
       </div>
 
-      {/* 선택된 파일명 + 데이터 분석하기 */}
+      {/* 선택된 파일명 + 데이터 분석하기 / 저장 / 취소 */}
       {file && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card p-3">
           <span className="text-sm font-medium text-foreground truncate max-w-[200px]" title={file.name}>
             {file.name}
           </span>
           <div className="flex gap-2">
-            <Button type="button" size="sm" onClick={analyzeAndSave} disabled={loading}>
+            <Button
+              type="button"
+              size="sm"
+              onClick={analyzeAndSave}
+              disabled={loading}
+              className="transition-all hover:brightness-110 hover:shadow-sm active:scale-[0.97]"
+            >
               {loading ? "분석 중…" : "데이터 분석하기"}
             </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={clearFile} disabled={loading}>
+            {onSave && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={onSave}
+                disabled={loading || saving}
+                className="border-primary text-primary transition-all hover:bg-primary hover:text-primary-foreground hover:shadow-sm active:scale-[0.97]"
+              >
+                {saving ? "저장 중…" : "저장"}
+              </Button>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={clearFile}
+              disabled={loading}
+              className="transition-all hover:bg-destructive/10 hover:text-destructive hover:border-destructive/50 active:scale-[0.97]"
+            >
               취소
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* 분석 완료 후에도 항상 삭제 가능 */}
+      {shopId && (
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={handleClearShopData}
+            disabled={loading}
+            className="text-muted-foreground"
+          >
+            이 매장 데이터 삭제
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            업로드된 판매일보 데이터를 모두 지웁니다. 분석 전·후 언제든 삭제 가능합니다.
+          </span>
         </div>
       )}
 

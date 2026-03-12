@@ -95,7 +95,6 @@ export default function SignupSuperAdminPage() {
         name: name.trim(),
         email: email.trim(),
         loginId: loginId.trim(),
-        storeGroupId: null,
       },
       key.trim(),
     );
