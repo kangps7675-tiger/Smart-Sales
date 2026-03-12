@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
         shop_id: shopId,
         name: snapshotName,
         entry_count: rows.length,
-        created_by: auth.userId ?? null,
+        created_by: auth.id ?? null,
       })
       .select("id, shop_id, name, entry_count, created_by, created_at")
       .single();
