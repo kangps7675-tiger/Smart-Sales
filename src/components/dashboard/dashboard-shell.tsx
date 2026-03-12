@@ -65,7 +65,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             <span className={`hidden sm:inline text-lg ${logoFont.className}`}>Smart Sales</span>
           </Link>
         </div>
-        <nav className="flex flex-1 flex-row gap-1 overflow-x-auto p-2 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto">
+        <nav className="flex min-h-0 flex-1 flex-row gap-1 overflow-x-auto p-2 sm:flex-col sm:overflow-x-hidden sm:overflow-y-auto">
           {(() => {
             const groupStyle: Record<NavGroup, { active: string; idle: string; border: string; label: string }> = {
               dashboard: {
@@ -100,7 +100,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               const showDivider = lastGroup !== null && lastGroup !== item.group;
               lastGroup = item.group;
               return (
-                <div key={item.href}>
+                <div key={item.href} className="shrink-0">
                   {showDivider && (
                     <div className="my-1.5 hidden items-center gap-2 sm:flex">
                       <div className="flex-1 border-t border-border/40" />
