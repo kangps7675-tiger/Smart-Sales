@@ -229,6 +229,23 @@ export const useAuthStore = create<AuthState>()(
             autoLogin: true,
           }));
 
+          try {
+            const headers: Record<string, string> = { "x-user-role": user.role };
+            if (user.shopId) headers["x-user-shop-id"] = user.shopId;
+            const shopsRes = await fetch("/api/shops", { credentials: "include", headers });
+            const shopsJson = await shopsRes.json().catch(() => []);
+            if (shopsRes.ok && Array.isArray(shopsJson)) {
+              const fromApi: Shop[] = shopsJson.map((s: { id: string; name: string; createdAt: string }) => ({
+                id: s.id,
+                name: s.name,
+                createdAt: s.createdAt ?? new Date().toISOString(),
+              }));
+              if (fromApi.length > 0) set({ registeredShops: fromApi });
+            }
+          } catch (_) {
+            /* 매장 목록 조회 실패 시 무시 — 로컬에 이미 추가됨 */
+          }
+
           return { success: true };
         } catch (error) {
           console.error("[Auth] 매장주 가입 요청 실패", error);
@@ -279,6 +296,23 @@ export const useAuthStore = create<AuthState>()(
           };
 
           set({ user, isLoggedIn: true, autoLogin: true });
+
+          try {
+            const headers: Record<string, string> = { "x-user-role": user.role };
+            if (user.shopId) headers["x-user-shop-id"] = user.shopId;
+            const shopsRes = await fetch("/api/shops", { credentials: "include", headers });
+            const shopsJson = await shopsRes.json().catch(() => []);
+            if (shopsRes.ok && Array.isArray(shopsJson)) {
+              const fromApi: Shop[] = shopsJson.map((s: { id: string; name: string; createdAt: string }) => ({
+                id: s.id,
+                name: s.name,
+                createdAt: s.createdAt ?? new Date().toISOString(),
+              }));
+              if (fromApi.length > 0) set({ registeredShops: fromApi });
+            }
+          } catch (_) {
+            /* 매장 목록 조회 실패 시 무시 */
+          }
 
           return { success: true };
         } catch (error) {
@@ -370,6 +404,21 @@ export const useAuthStore = create<AuthState>()(
           };
 
           set({ user, isLoggedIn: true, autoLogin: true });
+
+          try {
+            const shopsRes = await fetch("/api/shops", { credentials: "include", headers: { "x-user-role": "super_admin" } });
+            const shopsJson = await shopsRes.json().catch(() => []);
+            if (shopsRes.ok && Array.isArray(shopsJson)) {
+              const fromApi: Shop[] = shopsJson.map((s: { id: string; name: string; createdAt: string }) => ({
+                id: s.id,
+                name: s.name,
+                createdAt: s.createdAt ?? new Date().toISOString(),
+              }));
+              if (fromApi.length > 0) set({ registeredShops: fromApi });
+            }
+          } catch (_) {
+            /* 매장 목록 조회 실패 시 무시 */
+          }
 
           return { success: true };
         } catch (error) {
